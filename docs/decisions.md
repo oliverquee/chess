@@ -49,3 +49,13 @@ P0 operations must not leave partial state after a dependency or input failure.
 Puzzle corpus import runs in one database transaction, and a practice turn is
 committed to in-memory session state only after its required move, analysis,
 and engine-response work succeeds.
+
+## 2026-08-15 — Durable M2 session lifecycle
+
+**Status:** approved implementation of the handoff state machine
+
+The required `queued → in_progress → completed → analyzed` lifecycle is stored
+in `games.status` rather than existing only in renderer or process memory.
+Starting a new target inserts two queued game rows and starts the first.
+Completing the active game writes its moves and advances its status atomically;
+analysis later performs the separate completed-to-analyzed transition.

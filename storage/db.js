@@ -5,6 +5,11 @@ import { DatabaseSync } from 'node:sqlite';
 
 const SCHEMA_PATH = fileURLToPath(new URL('./schema.sql', import.meta.url));
 const ALLOWED_MODES = new Set(['practice', 'imported']);
+const SESSION_TRANSITIONS = Object.freeze({
+  queued: 'in_progress',
+  in_progress: 'completed',
+  completed: 'analyzed',
+});
 
 function assertDb(db) {
   if (!db || typeof db.exec !== 'function' || typeof db.prepare !== 'function') {
@@ -105,30 +110,16 @@ function ensureMoveAnalysisColumns(db) {
   }
 }
 
-export function initDb(path) {
-  if (typeof path !== 'string' || !path.trim()) throw new TypeError('path must be a non-empty string.');
-
-  if (path !== ':memory:') {
-    mkdirSync(dirname(resolve(path)), { recursive: true });
+function ensureGameStatusColumn(db) {
+  const columns = new Set(db.prepare('PRAGMA table_info(games)').all().map((column) => column.name));
+  if (!columns.has('status')) {
+    db.exec(`ALTER TABLE games ADD COLUMN status TEXT NOT NULL DEFAULT 'completed'
+      CHECK(status IN ('queued','in_progress','completed','analyzed'))`);
   }
-
-  const db = new DatabaseSync(path);
-  db.exec('PRAGMA foreign_keys = ON;');
-  db.exec(readFileSync(SCHEMA_PATH, 'utf8'));
-  ensureMoveAnalysisColumns(db);
-  return db;
 }
 
-export function saveGameSession(db, summary) {
-  assertDb(db);
-  validateSessionHeader(summary);
-
-  const insertGame = db.prepare(`
-    INSERT INTO games (
-      id, date, mode, result, seeded_weakness, seed_puzzle_id, start_fen, current_fen
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-  `);
-  const insertMove = db.prepare(`
+function prepareMoveInsert(db) {
+  return db.prepare(`
     INSERT INTO moves (
       game_id,
       ply_number,
@@ -143,6 +134,55 @@ export function saveGameSession(db, summary) {
       timestamp
     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `);
+}
+
+function insertMoves(insertMove, summary) {
+  for (const [index, move] of summary.moves.entries()) {
+    validateMove(move, summary.id);
+    if (move.ply_number !== index + 1) {
+      throw new Error(`Expected ply_number ${index + 1}, received ${move.ply_number}.`);
+    }
+    insertMove.run(
+      summary.id,
+      move.ply_number,
+      move.fen_before,
+      move.move_played,
+      normalizeNullableInteger(move.eval_cp_before, 'move.eval_cp_before'),
+      normalizeNullableInteger(move.eval_cp_after, 'move.eval_cp_after'),
+      normalizeNullableText(move.best_move, 'move.best_move'),
+      normalizeNullableText(move.principal_variation, 'move.principal_variation'),
+      normalizeMateFlag(move.is_mate_score),
+      move.stockfish_response ?? null,
+      move.timestamp,
+    );
+  }
+}
+
+export function initDb(path) {
+  if (typeof path !== 'string' || !path.trim()) throw new TypeError('path must be a non-empty string.');
+
+  if (path !== ':memory:') {
+    mkdirSync(dirname(resolve(path)), { recursive: true });
+  }
+
+  const db = new DatabaseSync(path);
+  db.exec('PRAGMA foreign_keys = ON;');
+  db.exec(readFileSync(SCHEMA_PATH, 'utf8'));
+  ensureGameStatusColumn(db);
+  ensureMoveAnalysisColumns(db);
+  return db;
+}
+
+export function saveGameSession(db, summary) {
+  assertDb(db);
+  validateSessionHeader(summary);
+
+  const insertGame = db.prepare(`
+    INSERT INTO games (
+      id, date, mode, status, result, seeded_weakness, seed_puzzle_id, start_fen, current_fen
+    ) VALUES (?, ?, ?, 'completed', ?, ?, ?, ?, ?)
+  `);
+  const insertMove = prepareMoveInsert(db);
 
   const date = summary.moves[0]?.timestamp ?? new Date().toISOString();
 
@@ -158,23 +198,94 @@ export function saveGameSession(db, summary) {
       summary.current_fen ?? null,
     );
 
-    for (const move of summary.moves) {
-      validateMove(move, summary.id);
-      insertMove.run(
-        summary.id,
-        move.ply_number,
-        move.fen_before,
-        move.move_played,
-        normalizeNullableInteger(move.eval_cp_before, 'move.eval_cp_before'),
-        normalizeNullableInteger(move.eval_cp_after, 'move.eval_cp_after'),
-        normalizeNullableText(move.best_move, 'move.best_move'),
-        normalizeNullableText(move.principal_variation, 'move.principal_variation'),
-        normalizeMateFlag(move.is_mate_score),
-        move.stockfish_response ?? null,
-        move.timestamp,
-      );
-    }
+    insertMoves(insertMove, summary);
 
+    return summary.id;
+  });
+}
+
+function validateQueuedGame(game) {
+  if (!game || typeof game !== 'object') throw new TypeError('game must be an object.');
+  if (typeof game.id !== 'string' || !game.id) throw new TypeError('game.id must be a non-empty string.');
+  if (typeof game.start_fen !== 'string' || !game.start_fen) throw new TypeError('game.start_fen must be a non-empty string.');
+}
+
+export function createQueuedGames(db, games) {
+  assertDb(db);
+  if (!Array.isArray(games) || games.length === 0) {
+    throw new TypeError('games must be a non-empty array.');
+  }
+  games.forEach(validateQueuedGame);
+  const insert = db.prepare(`
+    INSERT INTO games (
+      id, date, mode, status, result, seeded_weakness, seed_puzzle_id, start_fen, current_fen
+    ) VALUES (?, ?, 'practice', 'queued', NULL, ?, ?, ?, ?)
+  `);
+
+  return withTransaction(db, () => games.map((game) => {
+    insert.run(
+      game.id,
+      game.date ?? new Date().toISOString(),
+      game.seeded_weakness ?? null,
+      game.seed_puzzle_id ?? null,
+      game.start_fen,
+      game.start_fen,
+    );
+    return game.id;
+  }));
+}
+
+export function createQueuedGame(db, game) {
+  return createQueuedGames(db, [game])[0];
+}
+
+export function getGameStatus(db, gameId) {
+  assertDb(db);
+  if (typeof gameId !== 'string' || !gameId) throw new TypeError('gameId must be a non-empty string.');
+  const row = db.prepare('SELECT status FROM games WHERE id = ?').get(gameId);
+  if (!row) throw new Error(`Game not found: ${gameId}`);
+  return row.status;
+}
+
+export function transitionGameStatus(db, gameId, nextStatus) {
+  const current = getGameStatus(db, gameId);
+  const expected = SESSION_TRANSITIONS[current];
+  if (nextStatus !== expected) {
+    throw new Error(`Invalid game status transition: ${current} → ${nextStatus}. Expected ${expected ?? 'no further transition'}.`);
+  }
+  const result = db.prepare('UPDATE games SET status = ? WHERE id = ? AND status = ?')
+    .run(nextStatus, gameId, current);
+  if (Number(result.changes) !== 1) throw new Error(`Game status changed concurrently: ${gameId}`);
+  return nextStatus;
+}
+
+export function completeGameSession(db, summary) {
+  assertDb(db);
+  validateSessionHeader(summary);
+  const insertMove = prepareMoveInsert(db);
+  const date = summary.moves[0]?.timestamp ?? new Date().toISOString();
+
+  return withTransaction(db, () => {
+    const result = db.prepare(`
+      UPDATE games
+      SET date = ?, mode = ?, status = 'completed', result = ?,
+          seeded_weakness = ?, seed_puzzle_id = ?, start_fen = ?, current_fen = ?
+      WHERE id = ? AND status = 'in_progress'
+    `).run(
+      date,
+      summary.mode,
+      summary.result ?? null,
+      summary.seeded_weakness ?? null,
+      summary.seed_puzzle_id ?? null,
+      summary.start_fen ?? null,
+      summary.current_fen ?? null,
+      summary.id,
+    );
+    if (Number(result.changes) !== 1) {
+      const current = db.prepare('SELECT status FROM games WHERE id = ?').get(summary.id)?.status;
+      throw new Error(`Cannot complete game ${summary.id} from status ${current ?? 'missing'}.`);
+    }
+    insertMoves(insertMove, summary);
     return summary.id;
   });
 }
@@ -196,7 +307,7 @@ export function getGameHistory(db, { limit, weaknessCategory } = {}) {
       : ' WHERE seeded_weakness = ?';
   const limitClause = limit === undefined ? '' : ' LIMIT ?';
   const sql = `
-    SELECT id, date, mode, result, seeded_weakness, seed_puzzle_id, start_fen, current_fen
+    SELECT id, date, mode, status, result, seeded_weakness, seed_puzzle_id, start_fen, current_fen
     FROM games
     ${where}
     ORDER BY date DESC, rowid DESC

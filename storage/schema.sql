@@ -4,6 +4,7 @@ CREATE TABLE IF NOT EXISTS games (
   id TEXT PRIMARY KEY,
   date TEXT,
   mode TEXT CHECK(mode IN ('practice','imported')),
+  status TEXT NOT NULL DEFAULT 'completed' CHECK(status IN ('queued','in_progress','completed','analyzed')),
   result TEXT,
   seeded_weakness TEXT NULL,
   seed_puzzle_id TEXT NULL,
