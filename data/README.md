@@ -15,7 +15,9 @@ Download the CC0 Lichess puzzle export separately and decompress it to CSV. The 
 npm run import:puzzles -- /path/to/lichess_db_puzzle.csv /path/to/puzzles.sqlite
 ```
 
-The importer streams rows in batches into:
+The importer reads the source line-by-line with bounded memory and writes all
+rows inside one transaction, so a later invalid row rolls back the entire
+import rather than leaving a partial corpus. It writes into:
 
 - `puzzles` — FEN, UCI moves, rating, ply count
 - `puzzle_themes` — normalized theme rows
@@ -38,6 +40,10 @@ const startSlowQueue = getPuzzlesForWeakness('tactical');
 ```
 
 `themeTags` use OR semantics. Ply count is always `Moves.trim().split(/\s+/).length`; it is never divided by two.
+
+When a selected puzzle starts a targeted practice session, its exported
+`Moves[0]` setup move is applied legally to the raw FEN. The resulting
+motif-ready FEN is the free-game start; later solution moves are not forced.
 
 The theme-to-weakness table is fixed to the seven categories in `SPEC.md`. Origin tags (`master`, `masterVsMaster`, `superGM`, `mix`) and puzzle-length tags (`oneMove`, `short`, `long`, `veryLong`) are metadata, not weaknesses. Forced-mate and named mate-pattern themes map to `tactical`.
 

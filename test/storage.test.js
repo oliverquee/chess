@@ -13,7 +13,8 @@ import {
   saveWeaknessTags,
 } from '../storage/db.js';
 
-const START_FEN = 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1';
+const RAW_FEN = 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1';
+const START_FEN = 'rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq - 0 1';
 const NOW = '2026-08-15T09:00:00.000Z';
 
 function withTempDb(fn) {
@@ -29,8 +30,8 @@ function withTempDb(fn) {
 
 async function buildPracticeSummary(gameId = 'game-storage-1') {
   const analyses = [
-    { bestMove: 'e2e4', evalCp: 24, isMateScore: false, principalVariation: ['e2e4', 'e7e5'] },
-    { bestMove: 'e7e5', evalCp: -18, isMateScore: false, principalVariation: ['e7e5', 'g1f3'] },
+    { bestMove: 'e7e5', evalCp: 24, isMateScore: false, principalVariation: ['e7e5', 'g1f3'] },
+    { bestMove: 'g1f3', evalCp: -18, isMateScore: false, principalVariation: ['g1f3', 'b8c6'] },
     { bestMove: 'g1f3', evalCp: 12, isMateScore: false, principalVariation: ['g1f3', 'b8c6'] },
   ];
   const engine = {
@@ -38,14 +39,15 @@ async function buildPracticeSummary(gameId = 'game-storage-1') {
       return analyses.shift();
     },
     async playMove() {
-      return 'e7e5';
+      return 'g1f3';
     },
   };
 
   const session = new PracticeSession({
     puzzle: {
       PuzzleId: 'seed-storage-1',
-      FEN: START_FEN,
+      FEN: RAW_FEN,
+      Moves: 'e2e4 e7e5 g1f3',
       weaknessCategory: 'tactical',
     },
     engine,
@@ -53,7 +55,7 @@ async function buildPracticeSummary(gameId = 'game-storage-1') {
     now: () => NOW,
   });
 
-  await session.playTurn('e2e4');
+  await session.playTurn('c7c5');
   return session.end('1-0');
 }
 

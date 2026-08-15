@@ -10,8 +10,14 @@ Embedded external-content surface, THEME-ONLY overlay (CSS/JS visual skin).
 No functional changes. No AI analysis, no assistance, no live data reading
 during any chess.com gameplay. This is a hard rule — fair-play/ToS risk.
 
+Completed standard chess.com games may be imported post-hoc from the public
+archive API or manually exported PGN, evaluated locally, and saved with
+`mode='imported'`. Active-game board extraction or analysis is forbidden.
+
 ## Stockfish practice mode
-- stockfish.js (WASM), runs client-side in a Web Worker.
+- A locally vendored lite, single-threaded stockfish.js WASM build runs in a
+  Web Worker. SharedArrayBuffer/cross-origin isolation is not required unless a
+  later measured need justifies a multi-threaded build.
 - User plays live games against Stockfish.
 - "Future moves" preview is available ONLY in this mode (no human opponent).
 - Games are logged move-by-move with the FEN before the move, move played,
@@ -24,14 +30,19 @@ during any chess.com gameplay. This is a hard rule — fair-play/ToS risk.
 ## AI analysis (separate, manual, NOT live)
 Standalone page. User pastes in game history (from Stockfish practice or
 chess.com archived/exported games). Never connected live to any gameplay.
-Backend is user's choice: Claude API (their own key, paid) or local Ollama
-(free). Three structured prompts (see /prompts/ai-analysis.md):
+Claude API (user key) and local Ollama are implemented behind one backend
+abstraction selected at runtime. Three structured prompts (see
+`/prompts/ai-analysis.md`):
 1. Per-move classification — input includes FEN before the move, move played,
    engine best move, normalized eval delta, and game phase. Structured JSON
    output only, using the fixed taxonomy below.
 2. Checklist aggregation — ranks weaknesses and selects seed puzzles from the
    existing library. It must never invent new positions or opening theory.
 3. Progress review — before/after trend per weakness category.
+
+Every stored classification records `model_used`, `backend`, `prompt_version`,
+and `analysis_timestamp`; store `prompt_hash` when practical. LLM calls and
+secrets must remain outside an untrusted Electron renderer.
 
 ## Fixed weakness taxonomy (do not deviate — needed for trend tracking)
 tactical | king_safety | pawn_structure | piece_activity |
@@ -53,12 +64,12 @@ Fields used: PuzzleId, FEN, Moves (UCI sequence), Themes, Rating.
 - Requires a lookup table mapping Lichess Themes -> the taxonomy above.
 - "Start slow" rule: a newly targeted seedable weakness gets exactly 2 seed
   puzzles queued (1 short + 1 long/fallback), not a batch.
-- Puzzle FEN is used as a LIVE GAME START POSITION vs Stockfish — this is NOT a
-  forced-solution puzzle solve. Play continues normally with future-moves
-  preview active until the session ends.
-- Note: Lichess documents its exported FEN as the position before the opponent's
-  setup move. v1 intentionally keeps the raw FEN-as-start behavior above; do
-  not silently apply the first puzzle move unless this spec is changed.
+- Lichess exports the FEN before the opponent/setup move. Targeted practice MUST
+  legally apply `Moves[0]` to that raw FEN and use the resulting motif-ready FEN
+  as the live-game start position vs Stockfish.
+- After startup, the remaining exported solution moves are reference/motif
+  evidence only. They are never enforced; play continues as a normal Stockfish
+  game with future-moves preview active until the session ends.
 
 ## Storage
 Local SQLite, no backend server, no cloud sync. Personal training history uses:

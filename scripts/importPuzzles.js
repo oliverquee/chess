@@ -38,8 +38,14 @@ function parseCsvLine(line) {
   return fields;
 }
 
-export async function importPuzzleCsv(csvPath, dbPath, { batchSize = DEFAULT_BATCH_SIZE } = {}) {
+export async function importPuzzleCsv(csvPath, dbPath, {
+  batchSize = DEFAULT_BATCH_SIZE,
+  onProgress = null,
+} = {}) {
   if (!Number.isInteger(batchSize) || batchSize < 1) throw new RangeError('batchSize must be a positive integer.');
+  if (onProgress !== null && typeof onProgress !== 'function') {
+    throw new TypeError('onProgress must be a function or null.');
+  }
 
   const db = initPuzzleDb(dbPath);
   const upsertPuzzle = db.prepare(`
@@ -80,6 +86,11 @@ export async function importPuzzleCsv(csvPath, dbPath, { batchSize = DEFAULT_BAT
         const missing = REQUIRED_COLUMNS.filter((column) => !index.has(column));
         if (missing.length) throw new Error(`Puzzle CSV is missing required columns: ${missing.join(', ')}`);
         begin();
+        // The corpus is rebuildable source data. Re-import must reproduce the
+        // source exactly rather than retain rows removed from a newer export.
+        // This delete is part of the same transaction, so failure restores the
+        // previously valid corpus.
+        db.exec('DELETE FROM puzzles');
         continue;
       }
       if (!line.trim()) continue;
@@ -105,14 +116,12 @@ export async function importPuzzleCsv(csvPath, dbPath, { batchSize = DEFAULT_BAT
       }
 
       imported += 1;
-      if (imported % batchSize === 0) {
-        commit();
-        begin();
-      }
+      if (onProgress && imported % batchSize === 0) onProgress(imported);
     }
 
     if (!headers) throw new Error('Puzzle CSV is empty.');
     if (transactionOpen) commit();
+    if (onProgress && imported % batchSize !== 0) onProgress(imported);
     db.exec('ANALYZE');
     return imported;
   } catch (error) {

@@ -1,6 +1,10 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { selectSeedableTarget } from '../core/targeting.js';
+import { initPuzzleDb, SqlitePuzzleLibrary } from '../data/puzzleDb.js';
+import { getPuzzlesForWeakness } from '../data/themeMapping.js';
+
+const FEN = '8/8/8/8/8/8/4k3/4K3 w - - 0 1';
 
 test('practical_time is surfaced as advice and skipped for puzzle seeding', () => {
   const calls = [];
@@ -36,4 +40,29 @@ test('an all-practical-time ranking returns advice without crashing or inventing
   assert.equal(result.weaknessCategory, null);
   assert.deepEqual(result.puzzles, []);
   assert.equal(result.skipped[0].category, 'practical_time');
+});
+
+test('practical-time fallback selects exactly two tactical seeds from real SQLite queries', () => {
+  const db = initPuzzleDb(':memory:');
+  try {
+    const insertPuzzle = db.prepare('INSERT INTO puzzles (puzzle_id, fen, moves, rating, step_count) VALUES (?, ?, ?, ?, ?)');
+    const insertTheme = db.prepare('INSERT INTO puzzle_themes (theme, puzzle_id) VALUES (?, ?)');
+    insertPuzzle.run('short', FEN, 'e1d1 e2d2 d1c1 d2c2', 1200, 4);
+    insertPuzzle.run('long', FEN, 'e1d1 e2d2 d1c1 d2c2 c1b1 c2b2 b1a1 b2a2', 1400, 8);
+    insertTheme.run('fork', 'short');
+    insertTheme.run('fork', 'long');
+
+    const library = new SqlitePuzzleLibrary(db);
+    const result = selectSeedableTarget(['practical_time', 'tactical'], {
+      getPuzzles(category, bucket) {
+        return getPuzzlesForWeakness(category, bucket, { library, random: () => 0 });
+      },
+    });
+
+    assert.equal(result.weaknessCategory, 'tactical');
+    assert.deepEqual(result.puzzles.map((puzzle) => puzzle.PuzzleId), ['short', 'long']);
+    assert.equal(result.skipped[0].category, 'practical_time');
+  } finally {
+    db.close();
+  }
 });

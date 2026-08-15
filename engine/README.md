@@ -24,7 +24,10 @@ Searches are serialized so a new UCI search is never started while another is ac
 
 ## Practice-session logging
 
-`practiceSession.js` starts exactly from the seed puzzle's raw `FEN`; the puzzle solution line is never enforced. Every logged move now retains the information required by the future analysis prompt:
+`practiceSession.js` legally applies the seed puzzle's `Moves[0]` setup move to
+the raw exported `FEN` and starts from the resulting motif-ready position. The
+remaining puzzle solution line is never enforced. Every logged move retains the
+information required by the future analysis prompt:
 
 - `fen_before`
 - `move_played`

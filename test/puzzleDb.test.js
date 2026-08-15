@@ -53,3 +53,37 @@ test('streaming importer creates a queryable SQLite puzzle database', async () =
     rmSync(dir, { recursive: true, force: true });
   }
 });
+
+test('streaming importer rolls back every row when a later row is invalid', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'chess-puzzle-import-atomic-'));
+  const csvPath = join(dir, 'puzzles.csv');
+  const dbPath = join(dir, 'puzzles.sqlite');
+  writeFileSync(csvPath, `PuzzleId,FEN,Moves,Rating,Themes\np1,${FEN},e1d1 e2d2,1200,fork\np2,,e1d1 e2d2,1300,pin\n`);
+
+  try {
+    const existing = initPuzzleDb(dbPath);
+    existing.prepare('INSERT INTO puzzles (puzzle_id, fen, moves, rating, step_count) VALUES (?, ?, ?, ?, ?)')
+      .run('existing', FEN, 'e1d1 e2d2', 1100, 2);
+    existing.prepare('INSERT INTO puzzle_themes (theme, puzzle_id) VALUES (?, ?)')
+      .run('fork', 'existing');
+    existing.close();
+
+    await assert.rejects(
+      () => importPuzzleCsv(csvPath, dbPath, { batchSize: 1 }),
+      /Invalid puzzle row/,
+    );
+
+    const db = openPuzzleDb(dbPath);
+    try {
+      assert.deepEqual(
+        db.prepare('SELECT puzzle_id FROM puzzles ORDER BY puzzle_id').all().map((row) => row.puzzle_id),
+        ['existing'],
+      );
+      assert.equal(db.prepare('SELECT COUNT(*) AS count FROM puzzle_themes').get().count, 1);
+    } finally {
+      db.close();
+    }
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
