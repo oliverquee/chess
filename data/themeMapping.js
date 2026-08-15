@@ -11,8 +11,8 @@ export const WEAKNESS_CATEGORIES = Object.freeze([
 ]);
 
 export const STEP_BUCKETS = Object.freeze({
-  short: Object.freeze([5, 6]),
-  long: Object.freeze([8, 10]),
+  short: Object.freeze([2, 6]),
+  long: Object.freeze([8, 12]),
 });
 
 export const THEME_TO_WEAKNESS = Object.freeze({
@@ -123,6 +123,23 @@ function pickOne(puzzles, random) {
   return puzzles[index];
 }
 
+function sampleForQuery(library, query, random) {
+  if (typeof library?.sample === 'function') return library.sample(query, random);
+  return pickOne(filterPuzzles(query, library), random);
+}
+
+function longestForThemes(library, themeTags) {
+  if (typeof library?.findLongest === 'function') return library.findLongest({ themeTags });
+
+  return filterPuzzles(
+    { themeTags, stepRange: [0, Number.POSITIVE_INFINITY] },
+    library,
+  ).reduce((longest, puzzle) => {
+    if (!longest || puzzle.stepCount > longest.stepCount) return puzzle;
+    return longest;
+  }, null);
+}
+
 function getOneForBucket(weaknessCategory, bucket, library, random) {
   const stepRange = STEP_BUCKETS[bucket];
   if (!stepRange) throw new RangeError(`Unknown step bucket: ${bucket}`);
@@ -132,19 +149,20 @@ function getOneForBucket(weaknessCategory, bucket, library, random) {
     throw new Error(`No seed-puzzle themes are mapped for weakness ${weaknessCategory}.`);
   }
 
-  const candidates = filterPuzzles(
-    {
-      themeTags,
-      stepRange,
-    },
-    library,
-  );
+  const puzzle = sampleForQuery(library, { themeTags, stepRange }, random);
+  if (puzzle) return puzzle;
 
-  const puzzle = pickOne(candidates, random);
-  if (!puzzle) {
-    throw new Error(`No ${bucket} puzzle available for weakness ${weaknessCategory}.`);
+  if (bucket === 'long') {
+    const fallback = longestForThemes(library, themeTags);
+    if (fallback) {
+      return Object.freeze({
+        ...fallback,
+        bucketDowngraded: true,
+      });
+    }
   }
-  return puzzle;
+
+  throw new Error(`No ${bucket} puzzle available for weakness ${weaknessCategory}.`);
 }
 
 export function getPuzzlesForWeakness(
