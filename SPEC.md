@@ -13,6 +13,11 @@ during any chess.com gameplay. This is a hard rule — fair-play/ToS risk.
 Completed standard chess.com games may be imported post-hoc from the public
 archive API or manually exported PGN, evaluated locally, and saved with
 `mode='imported'`. Active-game board extraction or analysis is forbidden.
+Imported records persist the matched user's White/Black color and import source
+identifier. Only finished PGNs with a decisive/draw result are accepted; `*`
+and non-standard variants are rejected.
+Stockfish evidence is generated for every imported ply, but downstream
+per-move weakness classification processes only the matched user's plies.
 
 ## Stockfish practice mode
 - A locally vendored lite, single-threaded stockfish.js WASM build runs in a
@@ -87,6 +92,11 @@ The `moves` record stores `eval_cp_before`, `eval_cp_after`, `best_move`,
 `principal_variation`, and `is_mate_score` in addition to move/FEN/timestamp
 fields. Existing pre-fix databases may retain legacy `eval_cp` during migration,
 but new writes use the explicit before/after fields.
+
+Practice move timestamps are live-recorded. Because completed PGN normally does
+not prove an exact wall-clock time for each ply, imported rows store the local
+post-hoc analysis time and set `timestamp_source='posthoc_analysis'`; they must
+not fabricate historical per-move times.
 
 `games.status` durably owns the session lifecycle:
 `queued → in_progress → completed → analyzed`. Invalid or skipped transitions

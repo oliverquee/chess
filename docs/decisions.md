@@ -71,3 +71,15 @@ game/move evidence: valid classifications create a fixed-taxonomy weakness tag;
 double-invalid responses or backend failures create an `unclassified` attempt
 without fabricating a tag. Prompt/model/backend provenance is stored for both
 outcomes.
+
+## 2026-08-15 — M4 imported-time and source semantics
+
+**Status:** correctness clarification for approved completed-game import
+
+Completed chess.com imports persist the user's matched color, both player
+names, import source, and a stable external ID for deduplication. A PGN without
+a completed result or with a non-standard variant is rejected before engine or
+database work. Since ordinary PGN does not establish the wall-clock time of
+each ply, imported move `timestamp` records local evaluation time and is
+explicitly labelled `timestamp_source='posthoc_analysis'`; historical move
+times are never invented.

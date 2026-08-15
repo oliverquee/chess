@@ -9,7 +9,14 @@ CREATE TABLE IF NOT EXISTS games (
   seeded_weakness TEXT NULL,
   seed_puzzle_id TEXT NULL,
   start_fen TEXT,
-  current_fen TEXT
+  current_fen TEXT,
+  import_source TEXT NULL,
+  external_game_id TEXT NULL,
+  player_color TEXT NULL CHECK(player_color IN ('white','black')),
+  white_player TEXT NULL,
+  black_player TEXT NULL,
+  analysis_engine TEXT NULL,
+  analysis_depth INTEGER NULL
 );
 
 CREATE TABLE IF NOT EXISTS moves (
@@ -24,7 +31,9 @@ CREATE TABLE IF NOT EXISTS moves (
   principal_variation TEXT NULL,
   is_mate_score INTEGER NOT NULL DEFAULT 0 CHECK(is_mate_score IN (0,1)),
   stockfish_response TEXT NULL,
-  timestamp TEXT
+  timestamp TEXT,
+  timestamp_source TEXT NOT NULL DEFAULT 'live_recorded'
+    CHECK(timestamp_source IN ('live_recorded','posthoc_analysis'))
 );
 
 CREATE TABLE IF NOT EXISTS move_classifications (

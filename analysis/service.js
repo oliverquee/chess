@@ -88,8 +88,14 @@ export class AnalysisService {
     if (game.status !== 'completed') {
       throw new Error(`Game ${gameId} must be completed before analysis; current status is ${game.status}.`);
     }
+    if (game.mode === 'imported' && !['white', 'black'].includes(game.player_color)) {
+      throw new Error(`Imported game ${gameId} is missing a valid player_color.`);
+    }
+    const moves = game.mode === 'imported'
+      ? game.moves.filter((move) => move.fen_before.split(' ')[1] === game.player_color[0])
+      : game.moves;
     const results = [];
-    for (const move of game.moves) {
+    for (const move of moves) {
       const result = await this.classifyMove(move);
       saveMoveClassification(db, move.id, result);
       results.push({ moveId: move.id, ...result });

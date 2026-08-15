@@ -78,6 +78,15 @@ function validateMove(move, gameId) {
   }
 }
 
+function timestampSourceFor(move, mode) {
+  const expected = mode === 'imported' ? 'posthoc_analysis' : 'live_recorded';
+  const value = move.timestamp_source ?? expected;
+  if (value !== expected) {
+    throw new Error(`move.timestamp_source must be ${expected} for mode=${mode}.`);
+  }
+  return value;
+}
+
 function withTransaction(db, operation) {
   db.exec('BEGIN IMMEDIATE');
   try {
@@ -129,6 +138,31 @@ function ensureGameStatusColumn(db) {
   }
 }
 
+function ensureImportColumns(db) {
+  const gameColumns = new Set(db.prepare('PRAGMA table_info(games)').all().map((column) => column.name));
+  const gameAdditions = [
+    ['import_source', 'TEXT NULL'],
+    ['external_game_id', 'TEXT NULL'],
+    ['player_color', "TEXT NULL CHECK(player_color IN ('white','black'))"],
+    ['white_player', 'TEXT NULL'],
+    ['black_player', 'TEXT NULL'],
+    ['analysis_engine', 'TEXT NULL'],
+    ['analysis_depth', 'INTEGER NULL'],
+  ];
+  for (const [name, type] of gameAdditions) {
+    if (!gameColumns.has(name)) db.exec(`ALTER TABLE games ADD COLUMN ${name} ${type}`);
+  }
+
+  const moveColumns = new Set(db.prepare('PRAGMA table_info(moves)').all().map((column) => column.name));
+  if (!moveColumns.has('timestamp_source')) {
+    db.exec(`ALTER TABLE moves ADD COLUMN timestamp_source TEXT NOT NULL DEFAULT 'live_recorded'
+      CHECK(timestamp_source IN ('live_recorded','posthoc_analysis'))`);
+  }
+  db.exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_games_import_identity
+    ON games(import_source, external_game_id)
+    WHERE import_source IS NOT NULL AND external_game_id IS NOT NULL`);
+}
+
 function ensureWeaknessClassificationColumn(db) {
   const columns = new Set(db.prepare('PRAGMA table_info(weakness_tags)').all().map((column) => column.name));
   if (!columns.has('classification_id')) {
@@ -149,8 +183,9 @@ function prepareMoveInsert(db) {
       principal_variation,
       is_mate_score,
       stockfish_response,
-      timestamp
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      timestamp,
+      timestamp_source
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `);
 }
 
@@ -172,6 +207,7 @@ function insertMoves(insertMove, summary) {
       normalizeMateFlag(move.is_mate_score),
       move.stockfish_response ?? null,
       move.timestamp,
+      timestampSourceFor(move, summary.mode),
     );
   }
 }
@@ -189,6 +225,7 @@ export function initDb(path) {
   ensureGameStatusColumn(db);
   ensureMoveAnalysisColumns(db);
   ensureWeaknessClassificationColumn(db);
+  ensureImportColumns(db);
   return db;
 }
 
@@ -198,12 +235,14 @@ export function saveGameSession(db, summary) {
 
   const insertGame = db.prepare(`
     INSERT INTO games (
-      id, date, mode, status, result, seeded_weakness, seed_puzzle_id, start_fen, current_fen
-    ) VALUES (?, ?, ?, 'completed', ?, ?, ?, ?, ?)
+      id, date, mode, status, result, seeded_weakness, seed_puzzle_id, start_fen, current_fen,
+      import_source, external_game_id, player_color, white_player, black_player,
+      analysis_engine, analysis_depth
+    ) VALUES (?, ?, ?, 'completed', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `);
   const insertMove = prepareMoveInsert(db);
 
-  const date = summary.moves[0]?.timestamp ?? new Date().toISOString();
+  const date = summary.date ?? summary.moves[0]?.timestamp ?? new Date().toISOString();
 
   return withTransaction(db, () => {
     insertGame.run(
@@ -215,6 +254,13 @@ export function saveGameSession(db, summary) {
       summary.seed_puzzle_id ?? null,
       summary.start_fen ?? null,
       summary.current_fen ?? null,
+      summary.import_source ?? null,
+      summary.external_game_id ?? null,
+      summary.player_color ?? null,
+      summary.white_player ?? null,
+      summary.black_player ?? null,
+      summary.analysis_engine ?? null,
+      summary.analysis_depth ?? null,
     );
 
     insertMoves(insertMove, summary);
@@ -326,7 +372,9 @@ export function getGameHistory(db, { limit, weaknessCategory } = {}) {
       : ' WHERE seeded_weakness = ?';
   const limitClause = limit === undefined ? '' : ' LIMIT ?';
   const sql = `
-    SELECT id, date, mode, status, result, seeded_weakness, seed_puzzle_id, start_fen, current_fen
+    SELECT id, date, mode, status, result, seeded_weakness, seed_puzzle_id, start_fen, current_fen,
+           import_source, external_game_id, player_color, white_player, black_player,
+           analysis_engine, analysis_depth
     FROM games
     ${where}
     ORDER BY date DESC, rowid DESC
@@ -351,7 +399,8 @@ export function getGameHistory(db, { limit, weaknessCategory } = {}) {
       principal_variation,
       is_mate_score,
       stockfish_response,
-      timestamp
+      timestamp,
+      timestamp_source
     FROM moves
     WHERE game_id = ?
     ORDER BY ply_number ASC, id ASC
@@ -367,14 +416,16 @@ export function getGameById(db, gameId) {
   assertDb(db);
   if (typeof gameId !== 'string' || !gameId) throw new TypeError('gameId must be a non-empty string.');
   const game = db.prepare(`
-    SELECT id, date, mode, status, result, seeded_weakness, seed_puzzle_id, start_fen, current_fen
+    SELECT id, date, mode, status, result, seeded_weakness, seed_puzzle_id, start_fen, current_fen,
+           import_source, external_game_id, player_color, white_player, black_player,
+           analysis_engine, analysis_depth
     FROM games WHERE id = ?
   `).get(gameId);
   if (!game) throw new Error(`Game not found: ${gameId}`);
   const moves = db.prepare(`
     SELECT id, game_id, ply_number, fen_before, move_played, eval_cp_before,
            eval_cp_after, best_move, principal_variation, is_mate_score,
-           stockfish_response, timestamp
+           stockfish_response, timestamp, timestamp_source
     FROM moves WHERE game_id = ? ORDER BY ply_number ASC, id ASC
   `).all(gameId);
   return { ...game, moves: moves.map((move) => ({ ...move })) };

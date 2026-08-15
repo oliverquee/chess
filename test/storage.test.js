@@ -146,13 +146,13 @@ test('initDb migrates legacy eval_cp into eval_cp_before without fabricating eva
   const db = initDb(path);
   try {
     const row = db.prepare(`
-      SELECT m.eval_cp_before, m.eval_cp_after, m.is_mate_score, g.status
+      SELECT m.eval_cp_before, m.eval_cp_after, m.is_mate_score, m.timestamp_source, g.status
       FROM moves m JOIN games g ON g.id = m.game_id
       WHERE m.id = 1
     `).get();
     assert.deepEqual(
       { ...row },
-      { eval_cp_before: 35, eval_cp_after: null, is_mate_score: 0, status: 'completed' },
+      { eval_cp_before: 35, eval_cp_after: null, is_mate_score: 0, timestamp_source: 'live_recorded', status: 'completed' },
     );
     const classificationTable = db.prepare(`
       SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'move_classifications'
@@ -160,6 +160,10 @@ test('initDb migrates legacy eval_cp into eval_cp_before without fabricating eva
     assert.equal(classificationTable.name, 'move_classifications');
     const weaknessColumns = db.prepare('PRAGMA table_info(weakness_tags)').all().map((column) => column.name);
     assert.ok(weaknessColumns.includes('classification_id'));
+    const gameColumns = db.prepare('PRAGMA table_info(games)').all().map((column) => column.name);
+    for (const column of ['import_source', 'external_game_id', 'player_color', 'analysis_engine']) {
+      assert.ok(gameColumns.includes(column));
+    }
   } finally {
     db.close();
     rmSync(dir, { recursive: true, force: true });

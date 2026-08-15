@@ -49,6 +49,12 @@ Unclassified outcomes retain their error/provenance but cannot create a tag.
 Historical linked tags remain auditable and are excluded from current weakness
 tallies, preventing a model/prompt rerun from looking like extra player errors.
 
+Completed chess.com imports store source identity, White/Black user color,
+player names, and local Stockfish engine/depth metadata on `games`. Imported
+move timestamps are post-hoc evaluation times and are labelled
+`posthoc_analysis`; legacy and practice moves default truthfully to
+`live_recorded`. The partial unique import index prevents repeat archive rows.
+
 `PracticeSession.summary()` does not contain a separate game date. `saveGameSession()` stores the first move timestamp as `games.date`; for a zero-move session it uses the save time.
 
 ## API
