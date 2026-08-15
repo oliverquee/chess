@@ -17,7 +17,11 @@ CREATE TABLE IF NOT EXISTS moves (
   ply_number INTEGER,
   fen_before TEXT,
   move_played TEXT,
-  eval_cp INTEGER NULL,
+  eval_cp_before INTEGER NULL,
+  eval_cp_after INTEGER NULL,
+  best_move TEXT NULL,
+  principal_variation TEXT NULL,
+  is_mate_score INTEGER NOT NULL DEFAULT 0 CHECK(is_mate_score IN (0,1)),
   stockfish_response TEXT NULL,
   timestamp TEXT
 );
