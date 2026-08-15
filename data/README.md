@@ -21,12 +21,15 @@ const startSlowQueue = getPuzzlesForWeakness('tactical');
 
 `themeTags` uses OR semantics: a puzzle matching any requested theme is eligible. Ply count is always `Moves.trim().split(/\s+/).length`; it is never divided by two.
 
-The Lichess theme-to-weakness table is intentionally fixed to the seven categories in `SPEC.md`. Origin-only tags (`master`, `masterVsMaster`, `superGM`, `mix`) are metadata and are not treated as weaknesses.
+The Lichess theme-to-weakness table is intentionally fixed to the seven categories in `SPEC.md`. Origin tags (`master`, `masterVsMaster`, `superGM`, `mix`) and puzzle-length tags (`oneMove`, `short`, `long`, `veryLong`) are metadata and are not treated as weaknesses. Forced-mate and named mate-pattern themes map to `tactical`.
+
+Lichess currently has no genuine motif tag mapped to `practical_time`. `getPuzzlesForWeakness('practical_time')` therefore fails explicitly instead of selecting arbitrary puzzles from an empty theme filter.
 
 ## Tests
 
 From the repository root:
 
 ```bash
+npm install
 npm test
 ```
