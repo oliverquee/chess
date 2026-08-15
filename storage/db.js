@@ -25,6 +25,18 @@ function normalizeNullableInteger(value, fieldName) {
   return value;
 }
 
+function normalizeNullableText(value, fieldName) {
+  if (value === null || value === undefined) return null;
+  if (typeof value !== 'string') throw new TypeError(`${fieldName} must be a string or null.`);
+  return value;
+}
+
+function normalizeMateFlag(value) {
+  if (value === true || value === 1) return 1;
+  if (value === false || value === 0 || value === null || value === undefined) return 0;
+  throw new TypeError('move.is_mate_score must be 0, 1, boolean, null, or undefined.');
+}
+
 function validateMove(move, gameId) {
   if (!move || typeof move !== 'object') throw new TypeError('Each move must be an object.');
   if (move.game_id !== gameId) {
@@ -38,10 +50,16 @@ function validateMove(move, gameId) {
       throw new TypeError(`move.${field} must be a non-empty string.`);
     }
   }
+
+  normalizeNullableInteger(move.eval_cp_before, 'move.eval_cp_before');
+  normalizeNullableInteger(move.eval_cp_after, 'move.eval_cp_after');
+  normalizeNullableText(move.best_move, 'move.best_move');
+  normalizeNullableText(move.principal_variation, 'move.principal_variation');
+  normalizeMateFlag(move.is_mate_score);
+
   if (move.stockfish_response !== null && move.stockfish_response !== undefined && typeof move.stockfish_response !== 'string') {
     throw new TypeError('move.stockfish_response must be a string or null.');
   }
-  normalizeNullableInteger(move.eval_cp, 'move.eval_cp');
 }
 
 function withTransaction(db, operation) {
@@ -60,6 +78,33 @@ function withTransaction(db, operation) {
   }
 }
 
+function ensureMoveAnalysisColumns(db) {
+  const columns = new Set(db.prepare('PRAGMA table_info(moves)').all().map((column) => column.name));
+  const hadLegacyEval = columns.has('eval_cp');
+
+  const additions = [
+    ['eval_cp_before', 'INTEGER NULL'],
+    ['eval_cp_after', 'INTEGER NULL'],
+    ['best_move', 'TEXT NULL'],
+    ['principal_variation', 'TEXT NULL'],
+    ['is_mate_score', 'INTEGER NOT NULL DEFAULT 0 CHECK(is_mate_score IN (0,1))'],
+  ];
+
+  for (const [name, sqlType] of additions) {
+    if (!columns.has(name)) {
+      db.exec(`ALTER TABLE moves ADD COLUMN ${name} ${sqlType}`);
+      columns.add(name);
+    }
+  }
+
+  // Preserve the only interpretation available for pre-migration rows. Old
+  // eval_cp was the pre-move evaluation; no trustworthy post-move value can be
+  // reconstructed without re-analysis, so eval_cp_after remains NULL.
+  if (hadLegacyEval) {
+    db.exec('UPDATE moves SET eval_cp_before = eval_cp WHERE eval_cp_before IS NULL AND eval_cp IS NOT NULL');
+  }
+}
+
 export function initDb(path) {
   if (typeof path !== 'string' || !path.trim()) throw new TypeError('path must be a non-empty string.');
 
@@ -70,6 +115,7 @@ export function initDb(path) {
   const db = new DatabaseSync(path);
   db.exec('PRAGMA foreign_keys = ON;');
   db.exec(readFileSync(SCHEMA_PATH, 'utf8'));
+  ensureMoveAnalysisColumns(db);
   return db;
 }
 
@@ -84,8 +130,18 @@ export function saveGameSession(db, summary) {
   `);
   const insertMove = db.prepare(`
     INSERT INTO moves (
-      game_id, ply_number, fen_before, move_played, eval_cp, stockfish_response, timestamp
-    ) VALUES (?, ?, ?, ?, ?, ?, ?)
+      game_id,
+      ply_number,
+      fen_before,
+      move_played,
+      eval_cp_before,
+      eval_cp_after,
+      best_move,
+      principal_variation,
+      is_mate_score,
+      stockfish_response,
+      timestamp
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `);
 
   const date = summary.moves[0]?.timestamp ?? new Date().toISOString();
@@ -109,7 +165,11 @@ export function saveGameSession(db, summary) {
         move.ply_number,
         move.fen_before,
         move.move_played,
-        normalizeNullableInteger(move.eval_cp, 'move.eval_cp'),
+        normalizeNullableInteger(move.eval_cp_before, 'move.eval_cp_before'),
+        normalizeNullableInteger(move.eval_cp_after, 'move.eval_cp_after'),
+        normalizeNullableText(move.best_move, 'move.best_move'),
+        normalizeNullableText(move.principal_variation, 'move.principal_variation'),
+        normalizeMateFlag(move.is_mate_score),
         move.stockfish_response ?? null,
         move.timestamp,
       );
@@ -149,7 +209,19 @@ export function getGameHistory(db, { limit, weaknessCategory } = {}) {
 
   const games = db.prepare(sql).all(...params);
   const movesForGame = db.prepare(`
-    SELECT id, game_id, ply_number, fen_before, move_played, eval_cp, stockfish_response, timestamp
+    SELECT
+      id,
+      game_id,
+      ply_number,
+      fen_before,
+      move_played,
+      eval_cp_before,
+      eval_cp_after,
+      best_move,
+      principal_variation,
+      is_mate_score,
+      stockfish_response,
+      timestamp
     FROM moves
     WHERE game_id = ?
     ORDER BY ply_number ASC, id ASC
