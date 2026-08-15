@@ -6,7 +6,14 @@
 /engine/vendor/stockfish/stockfish.js
 ```
 
-Keep the matching `.wasm` file(s) beside that script. No remote engine URL is used. The Electron build can instead call `configureStockfish({ workerUrl })` with the packaged local asset URL.
+The repository vendors Stockfish.js 18.0.8's lite single-threaded
+`stockfish.js` and matching `stockfish.wasm` beside it. No remote engine URL is
+used. Provenance, checksums, and the GPL-3.0 license are in
+`engine/vendor/stockfish/`.
+
+The Electron build can call `configureStockfish({ workerUrl })` with the
+packaged local asset URL. Headless Node scripts/tests use
+`nodeWorkerAdapter.js`; game logic and UCI behavior are identical.
 
 ## Core API
 
@@ -54,4 +61,5 @@ npm install
 npm test
 ```
 
-Tests inject a fake worker/engine, so a Stockfish WASM binary is not required just to verify the protocol and session logic. The actual WASM binary still needs to be vendored before the M1 live-engine smoke test.
+The regression suite includes both fast fake-worker protocol tests and a real
+Stockfish WASM → practice session → SQLite close/reopen golden-path test.
