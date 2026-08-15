@@ -154,6 +154,12 @@ test('initDb migrates legacy eval_cp into eval_cp_before without fabricating eva
       { ...row },
       { eval_cp_before: 35, eval_cp_after: null, is_mate_score: 0, status: 'completed' },
     );
+    const classificationTable = db.prepare(`
+      SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'move_classifications'
+    `).get();
+    assert.equal(classificationTable.name, 'move_classifications');
+    const weaknessColumns = db.prepare('PRAGMA table_info(weakness_tags)').all().map((column) => column.name);
+    assert.ok(weaknessColumns.includes('classification_id'));
   } finally {
     db.close();
     rmSync(dir, { recursive: true, force: true });
