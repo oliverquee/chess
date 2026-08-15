@@ -48,7 +48,7 @@ export class PracticeSession {
     return this.engine.analyzePosition(fen, this.analysisDepth);
   }
 
-  makeLog({ fenBefore, movePlayed, evalCp, stockfishResponse = null, actor }) {
+  makeLog({ fenBefore, movePlayed, evalCp, stockfishResponse = null }) {
     return {
       game_id: this.gameId,
       ply_number: this.nextPlyNumber,
@@ -57,7 +57,6 @@ export class PracticeSession {
       eval_cp: evalCp,
       stockfish_response: stockfishResponse,
       timestamp: this.now(),
-      actor,
     };
   }
 
@@ -72,7 +71,6 @@ export class PracticeSession {
       fenBefore: playerFenBefore,
       movePlayed: playerMove,
       evalCp: playerEvaluation.evalCp,
-      actor: 'player',
     });
     this.logs.push(playerLog);
 
@@ -91,7 +89,6 @@ export class PracticeSession {
       fenBefore: engineFenBefore,
       movePlayed: engineMove,
       evalCp: engineEvaluation.evalCp,
-      actor: 'stockfish',
     });
     this.logs.push(engineLog);
 
