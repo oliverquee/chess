@@ -93,3 +93,13 @@ and encrypted secrets. The local renderer receives only an explicit preload API
 with named IPC operations and no Node primitives. The remote chess.com window
 has no preload at all and is restricted to a fail-soft CSS theme injection;
 future-line data is returned only from the Stockfish practice move operation.
+
+## 2026-08-15 — M6 data-only theme packs
+
+**Status:** implementation of approved swappable theming
+
+Cat and panda themes are validated token/artwork data consumed by small CSS and
+piece-map adapters. Theme modules import no engine, core, analysis, import, or
+storage code. Invalid/missing packs resolve to the default cat pack, and the
+placeholder Unicode piece mapping can later be replaced with final user artwork
+without changing chess behavior.

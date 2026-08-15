@@ -15,4 +15,5 @@ contextBridge.exposeInMainWorld('chessAnalyst', Object.freeze({
   hasClaudeKey: invoke('secrets:has-claude-key'),
   deleteClaudeKey: invoke('secrets:delete-claude-key'),
   openChessComTheme: invoke('theme:open-chesscom'),
+  setTheme: invoke('theme:set'),
 }));

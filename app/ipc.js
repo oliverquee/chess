@@ -4,7 +4,7 @@ export function isTrustedIpcEvent(event) {
   return event?.senderFrame?.url?.startsWith('file:') === true;
 }
 
-export function registerIpcHandlers({ ipcMain, controller, openChessComTheme }) {
+export function registerIpcHandlers({ ipcMain, controller, openChessComTheme, setTheme = () => ({ themeId: 'cat' }) }) {
   const handlers = new Map([
     [IPC_CHANNELS.getState, () => controller.getState()],
     [IPC_CHANNELS.startPractice, (_event, payload) => controller.startPractice(payload)],
@@ -18,6 +18,7 @@ export function registerIpcHandlers({ ipcMain, controller, openChessComTheme }) 
     [IPC_CHANNELS.hasClaudeKey, () => controller.hasClaudeKey()],
     [IPC_CHANNELS.deleteClaudeKey, () => controller.deleteClaudeKey()],
     [IPC_CHANNELS.openChessComTheme, () => openChessComTheme()],
+    [IPC_CHANNELS.setTheme, (_event, payload) => setTheme(payload)],
   ]);
   for (const [channel, handler] of handlers) {
     ipcMain.handle(channel, (event, payload) => {

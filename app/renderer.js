@@ -1,5 +1,7 @@
+import { applyThemeToDocument, resolveTheme, THEME_PACKS } from './themes/registry.js';
+
 const api = window.chessAnalyst;
-const pieces = { p:'♟',r:'♜',n:'♞',b:'♝',q:'♛',k:'♚',P:'♙',R:'♖',N:'♘',B:'♗',Q:'♕',K:'♔' };
+let activeTheme = applyThemeToDocument(document, resolveTheme('cat'));
 const files = 'abcdefgh';
 let activeGameId = null;
 let currentFen = '8/8/8/8/8/8/8/8 w - - 0 1';
@@ -35,7 +37,7 @@ function renderBoard() {
     button.className = `square ${(index + Math.floor(index / 8)) % 2 ? 'dark' : 'light'}${selected === square ? ' selected' : ''}`;
     button.dataset.square = square;
     button.setAttribute('aria-label', `${square}${piece ? ` ${piece}` : ''}`);
-    button.textContent = pieces[piece] ?? '';
+    button.textContent = activeTheme.pieces[piece] ?? '';
     button.addEventListener('click', () => selectSquare(square, piece));
     board.append(button);
   });
@@ -118,5 +120,14 @@ document.querySelector('#save-key').addEventListener('click', async () => {
 });
 
 document.querySelector('#open-chesscom').addEventListener('click', () => action(() => api.openChessComTheme()));
+const themeSelect = document.querySelector('#theme');
+for (const theme of THEME_PACKS) {
+  const option = document.createElement('option'); option.value = theme.id; option.textContent = theme.name; themeSelect.append(option);
+}
+themeSelect.addEventListener('change', async () => {
+  activeTheme = applyThemeToDocument(document, resolveTheme(themeSelect.value));
+  renderBoard();
+  await action(() => api.setTheme({ themeId: activeTheme.id }));
+});
 renderBoard();
 refresh();

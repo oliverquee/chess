@@ -133,6 +133,10 @@ The chess.com surface is a separate sandboxed window with no preload/IPC bridge.
 It may receive CSS through `insertCSS` only; application code must not read its
 DOM, FEN, PGN, moves, or any active-game state.
 
+Theme packs are validated data: palette/UI tokens, piece artwork mappings, and
+chess.com visual tokens. Missing or invalid packs fall back to the default pack
+without changing or disabling chess, training, import, or analysis behavior.
+
 ## Explicitly OUT of scope for v1 (do not build without updating this file)
 - Live AI analysis or assistance during any gameplay, anywhere.
 - Pet-care/gamification tracker (parked — see /docs/deferred.md if revisited).
