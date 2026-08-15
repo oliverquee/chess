@@ -31,8 +31,8 @@ archive API or manually exported PGN, evaluated locally, and saved with
 Standalone page. User pastes in game history (from Stockfish practice or
 chess.com archived/exported games). Never connected live to any gameplay.
 Claude API (user key) and local Ollama are implemented behind one backend
-abstraction selected at runtime. Three structured prompts (see
-`/prompts/ai-analysis.md`):
+abstraction selected at runtime. Three structured, independently versioned
+prompt files live under `/prompts`:
 1. Per-move classification — input includes FEN before the move, move played,
    engine best move, normalized eval delta, and game phase. Structured JSON
    output only, using the fixed taxonomy below.
@@ -43,6 +43,12 @@ abstraction selected at runtime. Three structured prompts (see
 Every stored classification records `model_used`, `backend`, `prompt_version`,
 and `analysis_timestamp`; store `prompt_hash` when practical. LLM calls and
 secrets must remain outside an untrusted Electron renderer.
+
+All model output is parsed and schema-validated before persistence. Invalid
+output is retried once with validation feedback. A second invalid response or
+backend failure records an `unclassified` attempt with provenance and never
+writes a weakness tag containing invalid taxonomy data. The original completed
+game and move records remain intact.
 
 ## Fixed weakness taxonomy (do not deviate — needed for trend tracking)
 tactical | king_safety | pawn_structure | piece_activity |

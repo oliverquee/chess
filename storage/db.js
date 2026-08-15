@@ -10,6 +10,17 @@ const SESSION_TRANSITIONS = Object.freeze({
   in_progress: 'completed',
   completed: 'analyzed',
 });
+const WEAKNESS_CATEGORIES = new Set([
+  'tactical',
+  'king_safety',
+  'pawn_structure',
+  'piece_activity',
+  'positional_judgment',
+  'endgame_technique',
+  'practical_time',
+]);
+const SEVERITIES = new Set(['low', 'medium', 'high']);
+const ANALYSIS_BACKENDS = new Set(['claude', 'ollama']);
 
 function assertDb(db) {
   if (!db || typeof db.exec !== 'function' || typeof db.prepare !== 'function') {
@@ -118,6 +129,13 @@ function ensureGameStatusColumn(db) {
   }
 }
 
+function ensureWeaknessClassificationColumn(db) {
+  const columns = new Set(db.prepare('PRAGMA table_info(weakness_tags)').all().map((column) => column.name));
+  if (!columns.has('classification_id')) {
+    db.exec('ALTER TABLE weakness_tags ADD COLUMN classification_id INTEGER NULL REFERENCES move_classifications(id)');
+  }
+}
+
 function prepareMoveInsert(db) {
   return db.prepare(`
     INSERT INTO moves (
@@ -170,6 +188,7 @@ export function initDb(path) {
   db.exec(readFileSync(SCHEMA_PATH, 'utf8'));
   ensureGameStatusColumn(db);
   ensureMoveAnalysisColumns(db);
+  ensureWeaknessClassificationColumn(db);
   return db;
 }
 
@@ -344,6 +363,23 @@ export function getGameHistory(db, { limit, weaknessCategory } = {}) {
   }));
 }
 
+export function getGameById(db, gameId) {
+  assertDb(db);
+  if (typeof gameId !== 'string' || !gameId) throw new TypeError('gameId must be a non-empty string.');
+  const game = db.prepare(`
+    SELECT id, date, mode, status, result, seeded_weakness, seed_puzzle_id, start_fen, current_fen
+    FROM games WHERE id = ?
+  `).get(gameId);
+  if (!game) throw new Error(`Game not found: ${gameId}`);
+  const moves = db.prepare(`
+    SELECT id, game_id, ply_number, fen_before, move_played, eval_cp_before,
+           eval_cp_after, best_move, principal_variation, is_mate_score,
+           stockfish_response, timestamp
+    FROM moves WHERE game_id = ? ORDER BY ply_number ASC, id ASC
+  `).all(gameId);
+  return { ...game, moves: moves.map((move) => ({ ...move })) };
+}
+
 // Future /analysis code will call this after per-move AI classification.
 // Storage deliberately accepts only the structured tag rows; it does not call an LLM itself.
 export function saveWeaknessTags(db, moveId, tags) {
@@ -371,10 +407,90 @@ export function saveWeaknessTags(db, moveId, tags) {
   }));
 }
 
+function validateProvenance(provenance) {
+  if (!provenance || typeof provenance !== 'object') throw new TypeError('provenance must be an object.');
+  for (const field of ['model_used', 'prompt_version', 'prompt_hash', 'analysis_timestamp']) {
+    if (typeof provenance[field] !== 'string' || !provenance[field]) {
+      throw new TypeError(`provenance.${field} must be a non-empty string.`);
+    }
+  }
+  if (!ANALYSIS_BACKENDS.has(provenance.backend)) {
+    throw new RangeError(`Unsupported analysis backend: ${provenance.backend}`);
+  }
+}
+
+export function saveMoveClassification(db, moveId, result) {
+  assertDb(db);
+  if (!Number.isInteger(moveId) || moveId < 1) throw new TypeError('moveId must be a positive integer.');
+  if (!result || typeof result !== 'object') throw new TypeError('result must be an object.');
+  if (!['classified', 'unclassified'].includes(result.status)) {
+    throw new RangeError(`Unsupported classification status: ${result.status}`);
+  }
+  if (!Number.isInteger(result.attempts) || result.attempts < 1 || result.attempts > 2) {
+    throw new RangeError('result.attempts must be 1 or 2.');
+  }
+  validateProvenance(result.provenance);
+
+  const value = result.value;
+  if (result.status === 'classified') {
+    if (!value || typeof value !== 'object') throw new TypeError('A classified result requires value.');
+    if (!WEAKNESS_CATEGORIES.has(value.category)) throw new RangeError(`Unknown weakness category: ${value.category}`);
+    if (!SEVERITIES.has(value.severity)) throw new RangeError(`Unknown severity: ${value.severity}`);
+    if (typeof value.rationale !== 'string' || !value.rationale) throw new TypeError('value.rationale must be a non-empty string.');
+  } else if (typeof result.error !== 'string' || !result.error) {
+    throw new TypeError('An unclassified result requires a non-empty error.');
+  }
+
+  return withTransaction(db, () => {
+    const move = db.prepare('SELECT id FROM moves WHERE id = ?').get(moveId);
+    if (!move) throw new Error(`Move not found: ${moveId}`);
+    db.prepare('UPDATE move_classifications SET is_current = 0 WHERE move_id = ? AND is_current = 1').run(moveId);
+    const inserted = db.prepare(`
+      INSERT INTO move_classifications (
+        move_id, status, category, severity, rationale, error, attempts,
+        model_used, backend, prompt_version, prompt_hash, analysis_timestamp, is_current
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)
+    `).run(
+      moveId,
+      result.status,
+      result.status === 'classified' ? value.category : null,
+      result.status === 'classified' ? value.severity : null,
+      result.status === 'classified' ? value.rationale : null,
+      result.error ?? null,
+      result.attempts,
+      result.provenance.model_used,
+      result.provenance.backend,
+      result.provenance.prompt_version,
+      result.provenance.prompt_hash,
+      result.provenance.analysis_timestamp,
+    );
+    const classificationId = Number(inserted.lastInsertRowid);
+    if (result.status === 'classified') {
+      db.prepare(`
+        INSERT INTO weakness_tags (move_id, category, severity, source, classification_id)
+        VALUES (?, ?, ?, 'ai_classification', ?)
+      `).run(moveId, value.category, value.severity, classificationId);
+    }
+    return classificationId;
+  });
+}
+
+export function getMoveClassifications(db, moveId, { currentOnly = false } = {}) {
+  assertDb(db);
+  if (!Number.isInteger(moveId) || moveId < 1) throw new TypeError('moveId must be a positive integer.');
+  return db.prepare(`
+    SELECT id, move_id, status, category, severity, rationale, error, attempts,
+           model_used, backend, prompt_version, prompt_hash, analysis_timestamp, is_current
+    FROM move_classifications
+    WHERE move_id = ? ${currentOnly ? 'AND is_current = 1' : ''}
+    ORDER BY id ASC
+  `).all(moveId).map((row) => ({ ...row }));
+}
+
 export function getWeaknessTally(db, { sinceGameId } = {}) {
   assertDb(db);
 
-  let where = '';
+  let where = 'WHERE (wt.classification_id IS NULL OR mc.is_current = 1)';
   let params = [];
 
   if (sinceGameId !== undefined) {
@@ -386,10 +502,10 @@ export function getWeaknessTally(db, { sinceGameId } = {}) {
     if (!anchor) throw new Error(`Game not found: ${sinceGameId}`);
 
     if (anchor.date === null) {
-      where = 'WHERE g.rowid >= ?';
+      where += ' AND g.rowid >= ?';
       params = [anchor.insertion_order];
     } else {
-      where = 'WHERE (g.date > ? OR (g.date = ? AND g.rowid >= ?))';
+      where += ' AND (g.date > ? OR (g.date = ? AND g.rowid >= ?))';
       params = [anchor.date, anchor.date, anchor.insertion_order];
     }
   }
@@ -399,6 +515,7 @@ export function getWeaknessTally(db, { sinceGameId } = {}) {
     FROM weakness_tags wt
     JOIN moves m ON m.id = wt.move_id
     JOIN games g ON g.id = m.game_id
+    LEFT JOIN move_classifications mc ON mc.id = wt.classification_id
     ${where}
     GROUP BY wt.category
     ORDER BY count DESC, wt.category ASC
