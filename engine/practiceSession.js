@@ -13,6 +13,19 @@ function defaultId() {
   return `practice-${Date.now()}-${Math.random().toString(36).slice(2)}`;
 }
 
+function normalizeAnalysis(analysis) {
+  if (!analysis || typeof analysis !== 'object') {
+    return { bestMove: null, evalCp: null, principalVariation: [], isMateScore: false };
+  }
+
+  return {
+    bestMove: analysis.bestMove ?? null,
+    evalCp: analysis.evalCp ?? null,
+    principalVariation: Array.isArray(analysis.principalVariation) ? analysis.principalVariation : [],
+    isMateScore: Boolean(analysis.isMateScore),
+  };
+}
+
 export class PracticeSession {
   constructor({
     puzzle,
@@ -45,16 +58,23 @@ export class PracticeSession {
   }
 
   async evaluate(fen) {
-    return this.engine.analyzePosition(fen, this.analysisDepth);
+    return normalizeAnalysis(await this.engine.analyzePosition(fen, this.analysisDepth));
   }
 
-  makeLog({ fenBefore, movePlayed, evalCp, stockfishResponse = null }) {
+  makeLog({ fenBefore, movePlayed, beforeAnalysis, afterAnalysis, stockfishResponse = null }) {
+    const before = normalizeAnalysis(beforeAnalysis);
+    const after = normalizeAnalysis(afterAnalysis);
+
     return {
       game_id: this.gameId,
       ply_number: this.nextPlyNumber,
       fen_before: fenBefore,
       move_played: movePlayed,
-      eval_cp: evalCp,
+      eval_cp_before: before.evalCp,
+      eval_cp_after: after.evalCp,
+      best_move: before.bestMove,
+      principal_variation: before.principalVariation.length ? before.principalVariation.join(' ') : null,
+      is_mate_score: before.isMateScore || after.isMateScore ? 1 : 0,
       stockfish_response: stockfishResponse,
       timestamp: this.now(),
     };
@@ -64,18 +84,20 @@ export class PracticeSession {
     if (this.ended) throw new Error('Practice session has ended.');
 
     const playerFenBefore = this.currentFen;
-    const playerEvaluation = await this.evaluate(playerFenBefore);
+    const playerBeforeAnalysis = await this.evaluate(playerFenBefore);
     this.currentFen = applyUciMoveToFen(this.currentFen, playerMove);
+    const playerAfterAnalysis = await this.evaluate(this.currentFen);
 
     const playerLog = this.makeLog({
       fenBefore: playerFenBefore,
       movePlayed: playerMove,
-      evalCp: playerEvaluation.evalCp,
+      beforeAnalysis: playerBeforeAnalysis,
+      afterAnalysis: playerAfterAnalysis,
     });
     this.logs.push(playerLog);
 
     const engineFenBefore = this.currentFen;
-    const engineEvaluation = await this.evaluate(engineFenBefore);
+    const engineBeforeAnalysis = playerAfterAnalysis;
     const engineMove = await this.engine.playMove(engineFenBefore, this.skillLevel);
 
     if (!engineMove) {
@@ -84,11 +106,13 @@ export class PracticeSession {
 
     playerLog.stockfish_response = engineMove;
     this.currentFen = applyUciMoveToFen(this.currentFen, engineMove);
+    const engineAfterAnalysis = await this.evaluate(this.currentFen);
 
     const engineLog = this.makeLog({
       fenBefore: engineFenBefore,
       movePlayed: engineMove,
-      evalCp: engineEvaluation.evalCp,
+      beforeAnalysis: engineBeforeAnalysis,
+      afterAnalysis: engineAfterAnalysis,
     });
     this.logs.push(engineLog);
 
