@@ -10,7 +10,7 @@
 <body>
   <header>
     <div><span class="eyebrow">Personal training room</span><h1>Chess Analyst</h1></div>
-    <button id="open-chesscom" class="secondary">Open chess.com theme-only window</button>
+    <div class="header-actions"><label>Theme<select id="theme"></select></label><button id="open-chesscom" class="secondary">Open chess.com theme-only window</button></div>
   </header>
   <main>
     <section class="practice panel">
@@ -53,6 +53,6 @@
     <section class="panel"><span class="eyebrow">Durable history</span><h2>Recent games</h2><div id="history"></div></section>
   </main>
   <div id="toast" role="status" aria-live="polite"></div>
-  <script src="renderer.js"></script>
+  <script type="module" src="renderer.js"></script>
 </body>
 </html>

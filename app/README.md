@@ -17,6 +17,11 @@ encrypted with `safeStorage`; Electron's Linux `basic_text` fallback is
 rejected. The chess.com window has its own session partition and no preload.
 Its only integration is fail-soft `insertCSS`.
 
+Theme packs live in `app/themes/registry.js`. They contain validated hex-color
+tokens and a 12-piece artwork map only; invalid or missing packs fall back to
+cat. The current piece maps are Unicode placeholders for later final cat/panda
+artwork and do not require any change to game logic.
+
 `CHESS_ANALYST_SMOKE=1` is a verification mode: after the local window loads it
 prints the observed web preferences and exits. It does not weaken production
 settings. A root-only CI container may require Chromium's `--no-sandbox` merely

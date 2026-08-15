@@ -11,6 +11,7 @@ export const IPC_CHANNELS = Object.freeze({
   hasClaudeKey: 'secrets:has-claude-key',
   deleteClaudeKey: 'secrets:delete-claude-key',
   openChessComTheme: 'theme:open-chesscom',
+  setTheme: 'theme:set',
 });
 
 export function secureWebPreferences(preload) {

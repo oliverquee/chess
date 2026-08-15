@@ -12,11 +12,13 @@ import { AppController } from './controller.js';
 import { registerIpcHandlers } from './ipc.js';
 import { SecretStore } from './secretStore.js';
 import { isAllowedChessComUrl, remoteThemeWebPreferences, secureWebPreferences } from './security.js';
+import { chessComThemeCss, resolveTheme } from './themes/registry.js';
 
 const APP_DIR = fileURLToPath(new URL('.', import.meta.url));
 let runtime = null;
 let mainWindow = null;
 let themeWindow = null;
+let currentTheme = resolveTheme('cat');
 
 function engineFactory() {
   return new StockfishWorkerClient({
@@ -84,12 +86,20 @@ function openChessComTheme() {
     if (!isAllowedChessComUrl(url)) event.preventDefault();
   });
   themeWindow.webContents.on('did-finish-load', () => {
-    const css = readFileSync(join(APP_DIR, 'chesscom-theme.css'), 'utf8');
+    const css = `${readFileSync(join(APP_DIR, 'chesscom-theme.css'), 'utf8')}\n${chessComThemeCss(currentTheme)}`;
     themeWindow?.webContents.insertCSS(css).catch(() => {});
   });
   themeWindow.on('closed', () => { themeWindow = null; });
   themeWindow.loadURL('https://www.chess.com/play/online').catch(() => {});
   return { opened: true };
+}
+
+function setTheme({ themeId } = {}) {
+  currentTheme = resolveTheme(themeId);
+  if (themeWindow && !themeWindow.isDestroyed()) {
+    themeWindow.webContents.insertCSS(chessComThemeCss(currentTheme)).catch(() => {});
+  }
+  return { themeId: currentTheme.id, artworkStatus: currentTheme.artworkStatus };
 }
 
 function createMainWindow() {
@@ -125,7 +135,7 @@ function createMainWindow() {
 
 app.whenReady().then(() => {
   runtime = createRuntime();
-  registerIpcHandlers({ ipcMain, controller: runtime.controller, openChessComTheme });
+  registerIpcHandlers({ ipcMain, controller: runtime.controller, openChessComTheme, setTheme });
   createMainWindow();
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createMainWindow();
