@@ -43,6 +43,6 @@ test('seeded practice session starts from puzzle FEN and produces move-table-sha
 
   assert.equal(
     session.currentFen,
-    'rnbqkbnr/pppp1ppp/8/4p3/4P3/8/PPPP1PPP/RNBQKBNR w KQkq e6 0 2',
+    'rnbqkbnr/pppp1ppp/8/4p3/4P3/8/PPPP1PPP/RNBQKBNR w KQkq - 0 2',
   );
 });
