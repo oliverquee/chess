@@ -6,12 +6,13 @@ import {
   getThemeTagsForWeakness,
   NON_WEAKNESS_METADATA_THEMES,
   resolveThemeToWeakness,
+  STEP_BUCKETS,
   WEAKNESS_CATEGORIES,
 } from '../data/themeMapping.js';
 
 const FEN = '8/8/8/8/8/8/4k3/4K3 w - - 0 1';
 const CSV = `PuzzleId,FEN,Moves,Rating,Themes
-t1,${FEN},e1d1 e2d2 d1c1 d2c2 c1b1,1200,fork short
+t1,${FEN},e1d1 e2d2 d1c1 d2c2,1200,fork short
 t2,${FEN},e1d1 e2d2 d1c1 d2c2 c1b1 c2b2 b1a1 b2a2,1300,pin long
 `;
 
@@ -77,10 +78,26 @@ test('practical_time does not silently seed arbitrary puzzles without a real mot
   );
 });
 
+test('step buckets cover actual even-ply Lichess puzzle lengths', () => {
+  assert.deepEqual(STEP_BUCKETS.short, [2, 6]);
+  assert.deepEqual(STEP_BUCKETS.long, [8, 12]);
+});
+
 test('start-slow queue returns exactly one short and one long puzzle', () => {
   const library = parsePuzzleCsv(CSV);
   const puzzles = getPuzzlesForWeakness('tactical', 'start-slow', { library, random: () => 0 });
   assert.equal(puzzles.length, 2);
-  assert.ok(puzzles[0].stepCount >= 5 && puzzles[0].stepCount <= 6);
-  assert.ok(puzzles[1].stepCount >= 8 && puzzles[1].stepCount <= 10);
+  assert.ok(puzzles[0].stepCount >= 2 && puzzles[0].stepCount <= 6);
+  assert.ok(puzzles[1].stepCount >= 8 && puzzles[1].stepCount <= 12);
+  assert.equal(puzzles[1].bucketDowngraded, undefined);
+});
+
+test('missing long bucket degrades to the longest matching puzzle and marks it', () => {
+  const onlyShortCsv = `PuzzleId,FEN,Moves,Rating,Themes\nf1,${FEN},e1d1 e2d2 d1c1 d2c2,1200,fork\nf2,${FEN},e1d1 e2d2 d1c1 d2c2 c1b1 c2b2,1250,fork\n`;
+  const library = parsePuzzleCsv(onlyShortCsv);
+  const [fallback] = getPuzzlesForWeakness('tactical', 'long', { library, random: () => 0 });
+
+  assert.equal(fallback.PuzzleId, 'f2');
+  assert.equal(fallback.stepCount, 6);
+  assert.equal(fallback.bucketDowngraded, true);
 });
