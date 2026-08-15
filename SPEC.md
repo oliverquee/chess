@@ -5,6 +5,12 @@ decisions exactly — do not reintroduce cut scope or invent alternatives.
 ## Platform
 Electron desktop app (not a website for v1).
 
+The application window uses `contextIsolation=true`, `nodeIntegration=false`,
+and a sandboxed renderer. Filesystem, SQLite, Stockfish, imports, and AI backend
+calls remain in the main process behind a narrow preload/IPC allowlist. Claude
+keys are encrypted with Electron `safeStorage` and are never returned to the
+renderer.
+
 ## Chess.com integration
 Embedded external-content surface, THEME-ONLY overlay (CSS/JS visual skin).
 No functional changes. No AI analysis, no assistance, no live data reading
@@ -122,6 +128,10 @@ started. `/core` exposes `startTargetedSession()`, `completeSession()`,
 Swappable animal-themed asset packs (cat, panda, others TBD): pieces,
 board, palette, UI chrome. Applies to both native app UI and the chess.com
 overlay. Fully decoupled from logic layers — build/change independently.
+
+The chess.com surface is a separate sandboxed window with no preload/IPC bridge.
+It may receive CSS through `insertCSS` only; application code must not read its
+DOM, FEN, PGN, moves, or any active-game state.
 
 ## Explicitly OUT of scope for v1 (do not build without updating this file)
 - Live AI analysis or assistance during any gameplay, anywhere.

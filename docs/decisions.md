@@ -83,3 +83,13 @@ database work. Since ordinary PGN does not establish the wall-clock time of
 each ply, imported move `timestamp` records local evaluation time and is
 explicitly labelled `timestamp_source='posthoc_analysis'`; historical move
 times are never invented.
+
+## 2026-08-15 — M5 privileged Electron boundary
+
+**Status:** approved implementation of the handoff security requirements
+
+The trusted main process owns SQLite, local Stockfish, imports, AI backends,
+and encrypted secrets. The local renderer receives only an explicit preload API
+with named IPC operations and no Node primitives. The remote chess.com window
+has no preload at all and is restricted to a fail-soft CSS theme injection;
+future-line data is returned only from the Stockfish practice move operation.

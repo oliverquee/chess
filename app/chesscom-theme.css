@@ -1,0 +1,4 @@
+/* Visual-only, fail-soft theme. No selectors are read and no game state leaves this page. */
+:root { --chess-analyst-accent: #315c4c; }
+body { background-color: #f4efe5 !important; }
+button, [role="button"] { border-radius: 10px !important; }

@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'none'">
+  <title>Chess Analyst</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <header>
+    <div><span class="eyebrow">Personal training room</span><h1>Chess Analyst</h1></div>
+    <button id="open-chesscom" class="secondary">Open chess.com theme-only window</button>
+  </header>
+  <main>
+    <section class="practice panel">
+      <div class="section-title"><div><span class="eyebrow">Stockfish practice</span><h2>Target a weakness</h2></div><span id="status" class="status">Ready</span></div>
+      <div class="practice-layout">
+        <div id="board" class="board" role="grid" aria-label="Interactive chess board"></div>
+        <div class="practice-controls">
+          <label>Focus category<select id="category">
+            <option value="tactical">Tactical</option><option value="king_safety">King safety</option>
+            <option value="pawn_structure">Pawn structure</option><option value="piece_activity">Piece activity</option>
+            <option value="positional_judgment">Positional judgment</option><option value="endgame_technique">Endgame technique</option>
+            <option value="practical_time">Practical / time</option>
+          </select></label>
+          <button id="start-practice">Start two-seed practice</button>
+          <button id="start-next-practice" class="secondary" disabled>Start next queued seed</button>
+          <button id="complete-practice" class="secondary" disabled>Complete session</button>
+          <div><span class="eyebrow">Practice-only future line</span><p id="future-line">Appears after your Stockfish-practice move.</p></div>
+          <p id="move-help">Select a piece, then its destination.</p>
+        </div>
+      </div>
+    </section>
+
+    <section class="panel split">
+      <div>
+        <span class="eyebrow">Completed games only</span><h2>Import chess.com PGN</h2>
+        <label>Chess.com username<input id="import-username" autocomplete="off"></label>
+        <label>Completed PGN<textarea id="pgn" rows="8" placeholder="Paste a completed standard-game PGN"></textarea></label>
+        <button id="import-pgn">Evaluate locally and import</button>
+      </div>
+      <div>
+        <span class="eyebrow">Manual post-game analysis</span><h2>Classify a stored game</h2>
+        <label>Game<select id="game-select"></select></label>
+        <label>Backend<select id="backend"><option value="ollama">Local Ollama</option><option value="claude">Claude API</option></select></label>
+        <label>Model<input id="model" value="qwen3:8b"></label>
+        <button id="analyze">Analyze completed game</button>
+        <details><summary>Claude key</summary><label>API key<input id="claude-key" type="password" autocomplete="off"></label><button id="save-key" class="secondary">Store with OS protection</button></details>
+      </div>
+    </section>
+
+    <section class="panel"><span class="eyebrow">Durable history</span><h2>Recent games</h2><div id="history"></div></section>
+  </main>
+  <div id="toast" role="status" aria-live="polite"></div>
+  <script src="renderer.js"></script>
+</body>
+</html>
