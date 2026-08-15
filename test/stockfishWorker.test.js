@@ -1,0 +1,52 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { StockfishWorkerClient } from '../engine/stockfishWorker.js';
+
+class FakeWorker {
+  constructor() {
+    this.listeners = new Set();
+    this.commands = [];
+  }
+
+  addEventListener(type, listener) {
+    if (type === 'message') this.listeners.add(listener);
+  }
+
+  removeEventListener(type, listener) {
+    if (type === 'message') this.listeners.delete(listener);
+  }
+
+  emit(data) {
+    queueMicrotask(() => {
+      for (const listener of this.listeners) listener({ data });
+    });
+  }
+
+  postMessage(command) {
+    this.commands.push(command);
+    if (command === 'uci') this.emit('uciok');
+    if (command === 'isready') this.emit('readyok');
+    if (command.startsWith('go depth')) {
+      this.emit('info depth 8 score cp 34 pv e2e4 e7e5 g1f3');
+      this.emit('bestmove e2e4');
+    }
+  }
+
+  terminate() {}
+}
+
+test('Stockfish worker client parses bestmove, centipawn eval and PV asynchronously', async () => {
+  const fake = new FakeWorker();
+  const client = new StockfishWorkerClient({ workerFactory: () => fake, workerUrl: 'local-stockfish.js' });
+  const fen = 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1';
+
+  const result = await client.analyzePosition(fen, 8);
+  assert.deepEqual(result, {
+    bestMove: 'e2e4',
+    evalCp: 34,
+    principalVariation: ['e2e4', 'e7e5', 'g1f3'],
+  });
+  assert.ok(fake.commands.includes(`position fen ${fen}`));
+  assert.ok(fake.commands.includes('go depth 8'));
+  client.dispose();
+});
