@@ -4,7 +4,8 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "test": "node --test"
+    "test": "node --test",
+    "import:puzzles": "node scripts/importPuzzles.js"
   },
   "dependencies": {
     "chess.js": "1.4.0"
