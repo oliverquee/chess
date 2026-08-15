@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { StockfishWorkerClient } from '../engine/stockfishWorker.js';
+import { parseInfoLine, StockfishWorkerClient } from '../engine/stockfishWorker.js';
 
 class FakeWorker {
   constructor() {
@@ -44,9 +44,22 @@ test('Stockfish worker client parses bestmove, centipawn eval and PV asynchronou
   assert.deepEqual(result, {
     bestMove: 'e2e4',
     evalCp: 34,
+    isMateScore: false,
     principalVariation: ['e2e4', 'e7e5', 'g1f3'],
   });
   assert.ok(fake.commands.includes(`position fen ${fen}`));
   assert.ok(fake.commands.includes('go depth 8'));
   client.dispose();
+});
+
+test('mate UCI scores are flagged instead of looking like ordinary centipawns', () => {
+  assert.deepEqual(
+    parseInfoLine('info depth 18 score mate -3 pv g8h8 h5h7'),
+    {
+      depth: 18,
+      evalCp: -100000,
+      isMateScore: true,
+      principalVariation: ['g8h8', 'h5h7'],
+    },
+  );
 });
