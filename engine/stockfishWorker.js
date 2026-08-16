@@ -50,28 +50,62 @@ export class StockfishWorkerClient {
     workerFactory = defaultWorkerFactory,
     analysisDepth = DEFAULT_ANALYSIS_DEPTH,
     playDepth = DEFAULT_PLAY_DEPTH,
+    commandTimeoutMs = 15000,
+    searchTimeoutMs = 30000,
   } = {}) {
     this.worker = workerFactory(workerUrl);
     this.analysisDepth = analysisDepth;
     this.playDepth = playDepth;
+    this.commandTimeoutMs = commandTimeoutMs;
+    this.searchTimeoutMs = searchTimeoutMs;
     this.waiters = [];
     this.currentSearch = null;
     this.queue = Promise.resolve();
     this.disposed = false;
+    this.failure = null;
     this.readyPromise = null;
+    this.engineName = null;
+    this.engineAuthor = null;
 
     this.handleMessage = this.handleMessage.bind(this);
+    this.handleError = this.handleError.bind(this);
     this.worker.addEventListener('message', this.handleMessage);
+    this.worker.addEventListener?.('error', this.handleError);
+  }
+
+  handleError(event) {
+    const error = event instanceof Error
+      ? event
+      : new Error(event?.message || 'Stockfish worker failed.');
+    this.fail(error);
+  }
+
+  fail(error) {
+    if (!this.failure) this.failure = error;
+    for (const waiter of this.waiters.splice(0)) {
+      clearTimeout(waiter.timer);
+      waiter.reject(this.failure);
+    }
+    if (this.currentSearch) {
+      clearTimeout(this.currentSearch.timer);
+      this.currentSearch.reject(this.failure);
+      this.currentSearch = null;
+    }
+    this.worker.terminate?.();
   }
 
   handleMessage(event) {
     const line = normalizeWorkerMessage(event);
     if (!line) return;
 
+    if (line.startsWith('id name ')) this.engineName = line.slice('id name '.length);
+    if (line.startsWith('id author ')) this.engineAuthor = line.slice('id author '.length);
+
     for (let i = 0; i < this.waiters.length; i += 1) {
       const waiter = this.waiters[i];
       if (waiter.predicate(line)) {
         this.waiters.splice(i, 1);
+        clearTimeout(waiter.timer);
         waiter.resolve(line);
         break;
       }
@@ -96,6 +130,7 @@ export class StockfishWorkerClient {
     if (bestMoveMatch) {
       const search = this.currentSearch;
       this.currentSearch = null;
+      clearTimeout(search.timer);
       const bestMove = bestMoveMatch[1] === '(none)' ? null : bestMoveMatch[1];
       search.resolve({
         bestMove,
@@ -106,15 +141,21 @@ export class StockfishWorkerClient {
     }
   }
 
-  waitFor(predicate) {
+  waitFor(predicate, timeoutMs = this.commandTimeoutMs) {
     if (this.disposed) return Promise.reject(new Error('Stockfish worker has been disposed.'));
+    if (this.failure) return Promise.reject(this.failure);
     return new Promise((resolve, reject) => {
-      this.waiters.push({ predicate, resolve, reject });
+      const waiter = { predicate, resolve, reject, timer: null };
+      waiter.timer = setTimeout(() => {
+        this.fail(new Error(`Stockfish command timed out after ${timeoutMs} ms.`));
+      }, timeoutMs);
+      this.waiters.push(waiter);
     });
   }
 
   post(command) {
     if (this.disposed) throw new Error('Stockfish worker has been disposed.');
+    if (this.failure) throw this.failure;
     this.worker.postMessage(command);
   }
 
@@ -149,14 +190,20 @@ export class StockfishWorkerClient {
 
     this.post(`position fen ${fen}`);
     const result = new Promise((resolve, reject) => {
-      this.currentSearch = {
+      const search = {
         depth: -1,
         evalCp: null,
         isMateScore: false,
         principalVariation: [],
         resolve,
         reject,
+        timer: null,
       };
+      search.timer = setTimeout(() => {
+        if (this.currentSearch !== search) return;
+        this.fail(new Error(`Stockfish search timed out after ${this.searchTimeoutMs} ms.`));
+      }, this.searchTimeoutMs);
+      this.currentSearch = search;
     });
     this.post(command);
     return result;
@@ -199,11 +246,16 @@ export class StockfishWorkerClient {
     if (this.disposed) return;
     this.disposed = true;
     this.worker.removeEventListener?.('message', this.handleMessage);
+    this.worker.removeEventListener?.('error', this.handleError);
     this.worker.terminate?.();
 
     const error = new Error('Stockfish worker disposed.');
-    for (const waiter of this.waiters.splice(0)) waiter.reject(error);
+    for (const waiter of this.waiters.splice(0)) {
+      clearTimeout(waiter.timer);
+      waiter.reject(error);
+    }
     if (this.currentSearch) {
+      clearTimeout(this.currentSearch.timer);
       this.currentSearch.reject(error);
       this.currentSearch = null;
     }

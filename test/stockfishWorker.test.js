@@ -63,3 +63,29 @@ test('mate UCI scores are flagged instead of looking like ordinary centipawns', 
     },
   );
 });
+
+test('a real dependency that stops responding fails by timeout instead of hanging', async () => {
+  class SilentSearchWorker extends FakeWorker {
+    postMessage(command) {
+      this.commands.push(command);
+      if (command === 'uci') this.emit('uciok');
+      if (command === 'isready') this.emit('readyok');
+    }
+  }
+
+  const client = new StockfishWorkerClient({
+    workerFactory: () => new SilentSearchWorker(),
+    workerUrl: 'silent-stockfish.js',
+    commandTimeoutMs: 50,
+    searchTimeoutMs: 20,
+  });
+
+  try {
+    await assert.rejects(
+      () => client.analyzePosition('8/8/8/8/8/8/4k3/4K3 w - - 0 1', 1),
+      /search timed out after 20 ms/,
+    );
+  } finally {
+    client.dispose();
+  }
+});
