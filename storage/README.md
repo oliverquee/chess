@@ -35,6 +35,11 @@ The Electron runtime selected later must embed Node 22.13+.
 
 Foreign-key enforcement is enabled on every connection. Indexes exist for `games(seeded_weakness)`, `moves(game_id)`, and `weakness_tags(category)`.
 
+`games.status` persists the strict lifecycle
+`queued → in_progress → completed → analyzed`. `completeGameSession()` changes
+an in-progress game to completed and inserts all move rows in one transaction;
+any invalid move restores both the prior status and empty move set.
+
 The large, rebuildable Lichess puzzle corpus is intentionally handled by `/data/puzzleDb.js` rather than being mixed conceptually with irreplaceable training history/backups.
 
 `PracticeSession.summary()` does not contain a separate game date. `saveGameSession()` stores the first move timestamp as `games.date`; for a zero-move session it uses the save time.

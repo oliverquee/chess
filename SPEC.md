@@ -82,6 +82,11 @@ The `moves` record stores `eval_cp_before`, `eval_cp_after`, `best_move`,
 fields. Existing pre-fix databases may retain legacy `eval_cp` during migration,
 but new writes use the explicit before/after fields.
 
+`games.status` durably owns the session lifecycle:
+`queued → in_progress → completed → analyzed`. Invalid or skipped transitions
+must fail explicitly. Completing a session writes its moves and changes status
+inside one transaction.
+
 The Lichess puzzle corpus is also stored locally in SQLite as pre-processed
 puzzle data with theme and ply-count indexes. It is rebuildable source data and
 should be treated separately from irreplaceable user training history when
@@ -91,6 +96,11 @@ backing up files.
 `/core` owns training-loop rules independent of UI: seed selection, start-slow
 queueing, practical_time fallback, session lifecycle, persistence handoff, and
 next-focus selection. UI layers must not become the owner of these rules.
+
+Starting a newly targeted weakness queues exactly two game sessions (short and
+long/fallback) and starts the first. The second remains queued until explicitly
+started. `/core` exposes `startTargetedSession()`, `completeSession()`,
+`markAnalyzed()`, and `getNextFocus()` for a fully headless cycle.
 
 ## Theming
 Swappable animal-themed asset packs (cat, panda, others TBD): pieces,

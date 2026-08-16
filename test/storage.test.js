@@ -6,11 +6,15 @@ import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { PracticeSession } from '../engine/practiceSession.js';
 import {
+  completeGameSession,
+  createQueuedGame,
   getGameHistory,
+  getGameStatus,
   getWeaknessTally,
   initDb,
   saveGameSession,
   saveWeaknessTags,
+  transitionGameStatus,
 } from '../storage/db.js';
 
 const RAW_FEN = 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1';
@@ -80,6 +84,7 @@ test('saveGameSession round-trips a real PracticeSession.summary()', async () =>
     assert.equal(stored.id, summary.id);
     assert.equal(stored.date, NOW);
     assert.equal(stored.mode, summary.mode);
+    assert.equal(stored.status, 'completed');
     assert.equal(stored.result, summary.result);
     assert.equal(stored.seeded_weakness, summary.seeded_weakness);
     assert.equal(stored.seed_puzzle_id, summary.seed_puzzle_id);
@@ -140,10 +145,72 @@ test('initDb migrates legacy eval_cp into eval_cp_before without fabricating eva
 
   const db = initDb(path);
   try {
-    const row = db.prepare('SELECT eval_cp_before, eval_cp_after, is_mate_score FROM moves WHERE id = 1').get();
-    assert.deepEqual({ ...row }, { eval_cp_before: 35, eval_cp_after: null, is_mate_score: 0 });
+    const row = db.prepare(`
+      SELECT m.eval_cp_before, m.eval_cp_after, m.is_mate_score, g.status
+      FROM moves m JOIN games g ON g.id = m.game_id
+      WHERE m.id = 1
+    `).get();
+    assert.deepEqual(
+      { ...row },
+      { eval_cp_before: 35, eval_cp_after: null, is_mate_score: 0, status: 'completed' },
+    );
   } finally {
     db.close();
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('completeGameSession rolls status and move inserts back together', async () => {
+  const summary = await buildPracticeSummary('game-complete-rollback');
+  const malformed = {
+    ...summary,
+    moves: summary.moves.map((move) => ({ ...move })),
+  };
+  malformed.moves[1].ply_number = 9;
+
+  return withTempDb((db) => {
+    createQueuedGame(db, {
+      id: summary.id,
+      date: NOW,
+      seeded_weakness: summary.seeded_weakness,
+      seed_puzzle_id: summary.seed_puzzle_id,
+      start_fen: summary.start_fen,
+    });
+    transitionGameStatus(db, summary.id, 'in_progress');
+
+    assert.throws(
+      () => completeGameSession(db, malformed),
+      /Expected ply_number 2, received 9/,
+    );
+    assert.equal(getGameStatus(db, summary.id), 'in_progress');
+    assert.equal(db.prepare('SELECT COUNT(*) AS count FROM moves').get().count, 0);
+  });
+});
+
+test('queued and in-progress lifecycle state survives a SQLite close/reopen boundary', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'chess-lifecycle-'));
+  const path = join(dir, 'lifecycle.sqlite');
+  let db = initDb(path);
+  try {
+    createQueuedGame(db, {
+      id: 'durable-session',
+      date: NOW,
+      seeded_weakness: 'tactical',
+      seed_puzzle_id: 'seed-durable',
+      start_fen: START_FEN,
+    });
+    assert.equal(getGameStatus(db, 'durable-session'), 'queued');
+    db.close();
+
+    db = initDb(path);
+    assert.equal(getGameStatus(db, 'durable-session'), 'queued');
+    transitionGameStatus(db, 'durable-session', 'in_progress');
+    db.close();
+
+    db = initDb(path);
+    assert.equal(getGameStatus(db, 'durable-session'), 'in_progress');
+  } finally {
+    try { db.close(); } catch {}
     rmSync(dir, { recursive: true, force: true });
   }
 });
