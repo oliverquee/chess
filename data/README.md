@@ -1,29 +1,53 @@
 # Data layer
 
-`puzzleLoader.js` parses a local Lichess puzzle CSV into a `PuzzleLibrary` with theme and ply-count indexes. It does not perform network access.
+The production Lichess puzzle corpus is SQLite-backed. The full database must **not** be parsed into renderer memory as JavaScript objects.
 
-## Core API
+- `puzzleDb.js` — opens/queries the indexed local puzzle database.
+- `puzzleSchema.sql` — rebuildable puzzle-corpus schema.
+- `puzzleLoader.js` — small in-memory implementation retained for unit tests and deliberately curated subsets only.
+- `themeMapping.js` — fixed Lichess-theme → weakness mapping and start-slow selection rules.
 
-```js
-import { loadPuzzleCsv, filterPuzzles } from './puzzleLoader.js';
-import { getPuzzlesForWeakness } from './themeMapping.js';
+## Import the Lichess corpus
 
-loadPuzzleCsv(csvText);
+Download the CC0 Lichess puzzle export separately and decompress it to CSV. The repository does not commit the multi-gigabyte source/export or the generated SQLite file.
 
-const tactical = filterPuzzles({
-  themeTags: ['fork', 'pin'],
-  stepRange: [5, 6],
-});
-
-const startSlowQueue = getPuzzlesForWeakness('tactical');
-// Exactly two puzzles: one 5-6 ply and one 8-10 ply.
+```bash
+npm run import:puzzles -- /path/to/lichess_db_puzzle.csv /path/to/puzzles.sqlite
 ```
 
-`themeTags` uses OR semantics: a puzzle matching any requested theme is eligible. Ply count is always `Moves.trim().split(/\s+/).length`; it is never divided by two.
+The importer reads the source line-by-line with bounded memory and writes all
+rows inside one transaction, so a later invalid row rolls back the entire
+import rather than leaving a partial corpus. It writes into:
 
-The Lichess theme-to-weakness table is intentionally fixed to the seven categories in `SPEC.md`. Origin tags (`master`, `masterVsMaster`, `superGM`, `mix`) and puzzle-length tags (`oneMove`, `short`, `long`, `veryLong`) are metadata and are not treated as weaknesses. Forced-mate and named mate-pattern themes map to `tactical`.
+- `puzzles` — FEN, UCI moves, rating, ply count
+- `puzzle_themes` — normalized theme rows
 
-Lichess currently has no genuine motif tag mapped to `practical_time`. `getPuzzlesForWeakness('practical_time')` therefore fails explicitly instead of selecting arbitrary puzzles from an empty theme filter.
+Indexes support theme and ply-count queries without building multi-million-entry JS `Map`/`Set` structures.
+
+## Production query example
+
+```js
+import { openPuzzleDb, SqlitePuzzleLibrary } from './puzzleDb.js';
+import { setPuzzleLibrary } from './puzzleLoader.js';
+import { getPuzzlesForWeakness } from './themeMapping.js';
+
+const db = openPuzzleDb('/path/to/puzzles.sqlite');
+setPuzzleLibrary(new SqlitePuzzleLibrary(db));
+
+const startSlowQueue = getPuzzlesForWeakness('tactical');
+// Exactly two selections: short (2–6 ply) + long (8–12 ply), with a
+// longest-available fallback marked bucketDowngraded=true when needed.
+```
+
+`themeTags` use OR semantics. Ply count is always `Moves.trim().split(/\s+/).length`; it is never divided by two.
+
+When a selected puzzle starts a targeted practice session, its exported
+`Moves[0]` setup move is applied legally to the raw FEN. The resulting
+motif-ready FEN is the free-game start; later solution moves are not forced.
+
+The theme-to-weakness table is fixed to the seven categories in `SPEC.md`. Origin tags (`master`, `masterVsMaster`, `superGM`, `mix`) and puzzle-length tags (`oneMove`, `short`, `long`, `veryLong`) are metadata, not weaknesses. Forced-mate and named mate-pattern themes map to `tactical`.
+
+Lichess has no genuine motif tag mapped to `practical_time`. Seed selection therefore fails explicitly for that category; `/core` must skip to the next seedable weakness and surface practical-time as advice instead.
 
 ## Tests
 

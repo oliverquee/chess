@@ -16,16 +16,19 @@ function parseInfoLine(line) {
   const pvMatch = line.match(/\bpv\s+(.+)$/);
 
   let evalCp = null;
+  let isMateScore = false;
   if (cpMatch) {
     evalCp = Number.parseInt(cpMatch[1], 10);
   } else if (mateMatch) {
     const mateIn = Number.parseInt(mateMatch[1], 10);
     evalCp = Math.sign(mateIn || 1) * MATE_SCORE_CP;
+    isMateScore = true;
   }
 
   return {
     depth: depthMatch ? Number.parseInt(depthMatch[1], 10) : 0,
     evalCp,
+    isMateScore,
     principalVariation: pvMatch ? pvMatch[1].trim().split(/\s+/) : [],
   };
 }
@@ -79,7 +82,10 @@ export class StockfishWorkerClient {
     const info = parseInfoLine(line);
     if (info && info.depth >= this.currentSearch.depth) {
       this.currentSearch.depth = info.depth;
-      if (info.evalCp !== null) this.currentSearch.evalCp = info.evalCp;
+      if (info.evalCp !== null) {
+        this.currentSearch.evalCp = info.evalCp;
+        this.currentSearch.isMateScore = info.isMateScore;
+      }
       if (info.principalVariation.length) {
         this.currentSearch.principalVariation = info.principalVariation;
       }
@@ -94,6 +100,7 @@ export class StockfishWorkerClient {
       search.resolve({
         bestMove,
         evalCp: search.evalCp,
+        isMateScore: search.isMateScore,
         principalVariation: search.principalVariation,
       });
     }
@@ -145,6 +152,7 @@ export class StockfishWorkerClient {
       this.currentSearch = {
         depth: -1,
         evalCp: null,
+        isMateScore: false,
         principalVariation: [],
         resolve,
         reject,

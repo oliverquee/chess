@@ -65,6 +65,9 @@ function normalizePuzzle(record) {
   });
 }
 
+// In-memory implementation retained for unit tests and deliberately small
+// curated subsets. The production Lichess corpus must use SqlitePuzzleLibrary
+// from puzzleDb.js instead of parsing the full CSV into JS objects.
 export class PuzzleLibrary {
   constructor(puzzles) {
     this.puzzles = Object.freeze([...puzzles]);
@@ -99,6 +102,21 @@ export class PuzzleLibrary {
       .sort((a, b) => a - b)
       .map((index) => this.puzzles[index])
       .filter((puzzle) => puzzle.stepCount >= minSteps && puzzle.stepCount <= maxSteps);
+  }
+
+  sample(query = {}, random = Math.random) {
+    const candidates = this.filter(query);
+    if (!candidates.length) return null;
+    const value = Number(random());
+    const bounded = Number.isFinite(value) ? Math.max(0, Math.min(0.999999999999, value)) : 0;
+    return candidates[Math.floor(bounded * candidates.length)];
+  }
+
+  findLongest({ themeTags = [] } = {}) {
+    return this.filter({ themeTags }).reduce((longest, puzzle) => {
+      if (!longest || puzzle.stepCount > longest.stepCount) return puzzle;
+      return longest;
+    }, null);
   }
 }
 
@@ -135,22 +153,22 @@ export function loadPuzzleCsv(csvText) {
 }
 
 export function setPuzzleLibrary(library) {
-  if (!(library instanceof PuzzleLibrary)) {
-    throw new TypeError('library must be a PuzzleLibrary instance.');
+  if (!library || typeof library.filter !== 'function') {
+    throw new TypeError('library must provide filter(query).');
   }
   activeLibrary = library;
 }
 
 export function getPuzzleLibrary() {
   if (!activeLibrary) {
-    throw new Error('No puzzle library loaded. Call loadPuzzleCsv(csvText) or pass a PuzzleLibrary explicitly.');
+    throw new Error('No puzzle library loaded. Set an in-memory or SQLite-backed puzzle library first.');
   }
   return activeLibrary;
 }
 
 export function filterPuzzles(query, library = activeLibrary) {
-  if (!library) {
-    throw new Error('No puzzle library loaded. Call loadPuzzleCsv(csvText) before filterPuzzles().');
+  if (!library || typeof library.filter !== 'function') {
+    throw new Error('No puzzle library loaded. Set a puzzle library before filterPuzzles().');
   }
   return library.filter(query);
 }
