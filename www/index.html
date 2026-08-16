@@ -3,8 +3,18 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
-  <title>Chess Analyst — Practice Board</title>
+  <title>Cat Analyst 🐱 — Orange Tabby Practice Board</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Nunito:wght@400;600;700;800;900&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="index.css">
+  <script type="importmap">
+  {
+    "imports": {
+      "chess.js": "./vendor/chess.js"
+    }
+  }
+  </script>
 </head>
 <body>
   <div id="app" class="app-container">
@@ -12,89 +22,118 @@
     <header class="app-header">
       <div class="header-content">
         <div class="brand">
-          <div class="logo-icon">♟</div>
-          <h1>Chess Analyst</h1>
+          <div class="brand-avatar">🐱</div>
+          <div class="brand-text">
+            <h1>Cat Analyst</h1>
+            <span class="brand-sub">Orange Tabby Edition 🐾</span>
+          </div>
         </div>
-        <div class="session-badge" id="session-badge">Practice Mode</div>
+        <div class="session-badge" id="session-badge">Practice Mode 🐟</div>
       </div>
     </header>
 
     <!-- Main Content Area -->
     <main class="main-content">
-      <!-- Target/Weakness Header -->
+      <!-- Target/Weakness Card -->
       <section class="target-card" id="target-card">
-        <div class="target-info">
-          <div class="target-label">Current Focus:</div>
-          <div class="target-name" id="target-name">Tactical (Motif Practice)</div>
+        <div class="target-card-header">
+          <span class="paw-icon">🐾</span>
+          <span class="target-label">Current Hunt (Focus):</span>
         </div>
-        <div class="target-queue-indicator" id="target-queue-indicator">Seed 1 of 2</div>
+        <div class="target-card-body">
+          <div class="target-name-wrap">
+            <h2 class="target-name" id="target-name">Tactical Motifs</h2>
+            <span class="target-desc" id="target-desc">Start-slow: 2 seed puzzles queued</span>
+          </div>
+          <div class="target-queue-indicator" id="target-queue-indicator">Seed 1 of 2 🐟</div>
+        </div>
       </section>
 
       <!-- Board Section -->
       <section class="board-section">
+        <!-- Opponent Bar -->
         <div class="player-bar opponent-bar">
           <div class="player-profile">
-            <span class="player-avatar">🤖</span>
-            <span class="player-name">Stockfish 18 Lite</span>
-            <span class="player-rating">(Skill: 10)</span>
+            <span class="player-avatar">🐈‍⬛</span>
+            <div class="player-meta">
+              <span class="player-name">Tabby Stockfish 18 Lite</span>
+              <span class="player-rating">Engine Skill: 10</span>
+            </div>
           </div>
-          <div class="eval-indicator" id="engine-eval">Eval: 0.00</div>
+          <div class="eval-badge" id="engine-eval">Eval: +0.00</div>
         </div>
 
+        <!-- Chessboard Container -->
         <div class="board-wrapper">
           <div id="chessboard" class="chessboard" aria-label="Chess Board"></div>
         </div>
 
+        <!-- User Bar -->
         <div class="player-bar user-bar">
           <div class="player-profile">
-            <span class="player-avatar">👤</span>
-            <span class="player-name">You</span>
-            <span class="turn-dot" id="turn-indicator"></span>
+            <span class="player-avatar">🐾</span>
+            <div class="player-meta">
+              <span class="player-name">You (Tactical Hunter)</span>
+              <span class="turn-status-text" id="move-status">Your turn to pounce! (Black)</span>
+            </div>
           </div>
-          <div class="move-status" id="move-status">Your turn (White)</div>
+          <div class="turn-indicator" id="turn-indicator">
+            <span class="turn-dot active"></span>
+          </div>
         </div>
       </section>
 
-      <!-- Move Log & Future Moves Preview Section -->
+      <!-- Analysis & Future Moves Preview Section -->
       <section class="analysis-panel">
         <div class="panel-tabs">
-          <button class="tab-btn active" id="tab-moves">Move Log</button>
-          <button class="tab-btn" id="tab-preview">Future Moves Preview</button>
+          <button class="tab-btn active" id="tab-moves">🐾 Move History</button>
+          <button class="tab-btn" id="tab-preview">🔮 Future Moves Preview</button>
         </div>
 
         <div class="tab-content" id="tab-content-moves">
           <div class="move-log-container" id="move-log">
-            <div class="empty-log-message">Session started. Make a move on the board.</div>
+            <div class="empty-log-message">Motif-ready position loaded. Make your first move! 🐾</div>
           </div>
         </div>
 
         <div class="tab-content hidden" id="tab-content-preview">
           <div class="pv-container" id="pv-container">
-            <div class="pv-label">Principal Variation (Best Move Sequence):</div>
+            <div class="pv-label">Stockfish Principal Variation (Engine Best Line):</div>
             <div class="pv-moves" id="pv-moves">—</div>
-            <p class="preview-note">Preview is enabled exclusively during local practice vs Stockfish.</p>
+            <p class="preview-note">🔒 Preview is enabled exclusively during local practice vs Stockfish.</p>
           </div>
         </div>
       </section>
 
       <!-- Action Controls -->
       <section class="controls-section">
-        <button id="btn-start-target" class="btn btn-primary">Start New Target (Start-Slow)</button>
-        <button id="btn-next-queued" class="btn btn-secondary">Next Queued Seed</button>
-        <button id="btn-flip" class="btn btn-icon" title="Flip Board">🔄</button>
-        <button id="btn-complete" class="btn btn-danger">Complete Session</button>
+        <button id="btn-start-target" class="btn btn-primary" title="Start a 2-seed targeted weakness training cycle">
+          <span class="btn-icon">🐾</span>
+          <span class="btn-text">Pounce on Weakness (Start-Slow)</span>
+        </button>
+        <button id="btn-next-queued" class="btn btn-secondary" title="Load the second queued seed puzzle">
+          <span class="btn-icon">🐟</span>
+          <span class="btn-text">Next Fish Seed (2/2)</span>
+        </button>
+        <div class="secondary-actions">
+          <button id="btn-flip" class="btn btn-icon-only" title="Rotate Board 180°">🔄</button>
+          <button id="btn-complete" class="btn btn-danger" title="Finish and log session for post-game analysis">
+            <span>🏁 End Session</span>
+          </button>
+        </div>
       </section>
     </main>
 
-    <!-- Bottom Navigation / Status -->
+    <!-- Bottom Status Bar -->
     <footer class="app-footer">
       <div class="status-indicator">
         <span class="status-dot live"></span>
-        <span id="system-status">Ready • Capacitor Shell Active</span>
+        <span id="system-status">Purr-fect • Orange Cat Theme Active</span>
       </div>
+      <div class="version-tag">M8 Capacitor</div>
     </footer>
   </div>
 
-  <script type="module" src="app.js"></script>
+  <script src="app.js"></script>
 </body>
 </html>

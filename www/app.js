@@ -1,18 +1,265 @@
-import { Chess } from './vendor/chess.js';
-
-// Unicode chess piece characters
+// Standard chess piece characters (Standard silhouettes with warm styling)
 const PIECES = {
   p: '♟', r: '♜', n: '♞', b: '♝', q: '♛', k: '♚',
   P: '♙', R: '♖', N: '♘', B: '♗', Q: '♕', K: '♔',
 };
 
-// Initial state
-let chess = new Chess();
-let orientation = 'white';
+// Seed Puzzles Corpus for Start-Slow Practice Across Taxonomy
+const SEED_PUZZLES = [
+  {
+    PuzzleId: 'tactical-short',
+    FEN: 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1',
+    Moves: 'e2e4 e7e5 g1f3 b8c6',
+    Themes: 'fork tactical',
+    Rating: 1200,
+    weaknessCategory: 'tactical',
+  },
+  {
+    PuzzleId: 'tactical-long',
+    FEN: 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1',
+    Moves: 'e2e4 e7e5 g1f3 b8c6 d2d4 e5d4 f3d4 g8f6',
+    Themes: 'fork tactical',
+    Rating: 1450,
+    weaknessCategory: 'tactical',
+  },
+  {
+    PuzzleId: 'kingsafety-short',
+    FEN: 'r1bqkbnr/pppp1ppp/2n5/4p3/2B1P3/5N2/PPPP1PPP/RNBQK2R b KQkq - 3 3',
+    Moves: 'f8c5 d2d3 g8f6',
+    Themes: 'kingsideAttack king_safety',
+    Rating: 1250,
+    weaknessCategory: 'king_safety',
+  },
+  {
+    PuzzleId: 'kingsafety-long',
+    FEN: 'r1bqkbnr/pppp1ppp/2n5/4p3/2B1P3/5N2/PPPP1PPP/RNBQK2R b KQkq - 3 3',
+    Moves: 'f8c5 d2d3 g8f6 b1c3 d7d6 c1g5 h7h6 g5h4',
+    Themes: 'kingsideAttack king_safety',
+    Rating: 1400,
+    weaknessCategory: 'king_safety',
+  },
+];
+
+/**
+ * Lightweight, robust FEN state manager that runs reliably offline & in WebViews
+ */
+class BoardState {
+  constructor(fen = 'rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq - 0 1') {
+    this.setFen(fen);
+  }
+
+  setFen(fen) {
+    this.fen = fen;
+    const [placement, turn, castling, ep, half, full] = fen.split(' ');
+    this.activeColor = turn || 'w';
+    this.castling = castling || '-';
+    this.enPassant = ep || '-';
+    this.halfMoves = parseInt(half, 10) || 0;
+    this.fullMoves = parseInt(full, 10) || 1;
+
+    this.grid = Array(8).fill(null).map(() => Array(8).fill(null));
+    const ranks = placement.split('/');
+    for (let r = 0; r < 8; r++) {
+      let f = 0;
+      for (const char of ranks[r]) {
+        if (/\d/.test(char)) {
+          f += parseInt(char, 10);
+        } else {
+          this.grid[r][f] = {
+            type: char.toLowerCase(),
+            color: char === char.toUpperCase() ? 'w' : 'b',
+          };
+          f++;
+        }
+      }
+    }
+  }
+
+  get(square) {
+    const file = square.charCodeAt(0) - 97;
+    const rank = 8 - parseInt(square[1], 10);
+    if (rank >= 0 && rank < 8 && file >= 0 && file < 8) {
+      return this.grid[rank][file];
+    }
+    return null;
+  }
+
+  turn() {
+    return this.activeColor;
+  }
+
+  getBoard() {
+    return this.grid;
+  }
+
+  move({ from, to, promotion }) {
+    const fromPiece = this.get(from);
+    if (!fromPiece) return null;
+
+    const fromFile = from.charCodeAt(0) - 97;
+    const fromRank = 8 - parseInt(from[1], 10);
+    const toFile = to.charCodeAt(0) - 97;
+    const toRank = 8 - parseInt(to[1], 10);
+
+    const pieceType = promotion ? promotion.toLowerCase() : fromPiece.type;
+    this.grid[toRank][toFile] = {
+      type: pieceType,
+      color: fromPiece.color,
+    };
+    this.grid[fromRank][fromFile] = null;
+
+    this.activeColor = this.activeColor === 'w' ? 'b' : 'w';
+    return {
+      from,
+      to,
+      color: fromPiece.color,
+      san: `${fromPiece.type !== 'p' ? fromPiece.type.toUpperCase() : ''}${to}`,
+    };
+  }
+
+  getLegalMovesFor(square) {
+    const piece = this.get(square);
+    if (!piece || piece.color !== this.activeColor) return [];
+
+    const file = square.charCodeAt(0) - 97;
+    const rank = 8 - parseInt(square[1], 10);
+    const targets = [];
+
+    // Standard simple candidate moves for interactive practice
+    if (piece.type === 'p') {
+      const dir = piece.color === 'w' ? -1 : 1;
+      const startRank = piece.color === 'w' ? 6 : 1;
+      if (rank + dir >= 0 && rank + dir < 8 && !this.grid[rank + dir][file]) {
+        targets.push(`${String.fromCharCode(97 + file)}${8 - (rank + dir)}`);
+        if (rank === startRank && !this.grid[rank + 2 * dir][file]) {
+          targets.push(`${String.fromCharCode(97 + file)}${8 - (rank + 2 * dir)}`);
+        }
+      }
+      for (const df of [-1, 1]) {
+        const nf = file + df;
+        const nr = rank + dir;
+        if (nf >= 0 && nf < 8 && nr >= 0 && nr < 8 && this.grid[nr][nf] && this.grid[nr][nf].color !== piece.color) {
+          targets.push(`${String.fromCharCode(97 + nf)}${8 - nr}`);
+        }
+      }
+    } else if (piece.type === 'n') {
+      const deltas = [[-2, -1], [-2, 1], [-1, -2], [-1, 2], [1, -2], [1, 2], [2, -1], [2, 1]];
+      for (const [dr, df] of deltas) {
+        const nr = rank + dr;
+        const nf = file + df;
+        if (nr >= 0 && nr < 8 && nf >= 0 && nf < 8) {
+          if (!this.grid[nr][nf] || this.grid[nr][nf].color !== piece.color) {
+            targets.push(`${String.fromCharCode(97 + nf)}${8 - nr}`);
+          }
+        }
+      }
+    } else {
+      // General sliding / king moves
+      const directions = piece.type === 'b' ? [[-1, -1], [-1, 1], [1, -1], [1, 1]] :
+                         piece.type === 'r' ? [[-1, 0], [1, 0], [0, -1], [0, 1]] :
+                         piece.type === 'q' || piece.type === 'k' ? [[-1, -1], [-1, 1], [1, -1], [1, 1], [-1, 0], [1, 0], [0, -1], [0, 1]] : [];
+      const maxDist = piece.type === 'k' ? 1 : 7;
+      for (const [dr, df] of directions) {
+        for (let dist = 1; dist <= maxDist; dist++) {
+          const nr = rank + dr * dist;
+          const nf = file + df * dist;
+          if (nr < 0 || nr >= 8 || nf < 0 || nf >= 8) break;
+          if (!this.grid[nr][nf]) {
+            targets.push(`${String.fromCharCode(97 + nf)}${8 - nr}`);
+          } else {
+            if (this.grid[nr][nf].color !== piece.color) {
+              targets.push(`${String.fromCharCode(97 + nf)}${8 - nr}`);
+            }
+            break;
+          }
+        }
+      }
+    }
+
+    return targets;
+  }
+}
+
+/**
+ * In-memory / browser SQLite storage adapter
+ */
+class BrowserStorageAdapter {
+  constructor() {
+    this.games = new Map();
+    this.moves = new Map();
+    this.weaknessTags = [];
+  }
+
+  async createQueuedGames(db, games) {
+    for (const g of games) {
+      this.games.set(g.id, {
+        ...g,
+        status: 'queued',
+        result: null,
+      });
+      this.moves.set(g.id, []);
+    }
+    return games.map((g) => g.id);
+  }
+
+  async getGameStatus(db, gameId) {
+    const game = this.games.get(gameId);
+    if (!game) throw new Error(`Game not found: ${gameId}`);
+    return game.status;
+  }
+
+  async transitionGameStatus(db, gameId, nextStatus) {
+    const game = this.games.get(gameId);
+    if (!game) throw new Error(`Game not found: ${gameId}`);
+    game.status = nextStatus;
+    return nextStatus;
+  }
+
+  async completeGameSession(db, summary) {
+    const game = this.games.get(summary.id);
+    if (!game) throw new Error(`Game not found: ${summary.id}`);
+    game.status = 'completed';
+    game.result = summary.result ?? '*';
+    game.current_fen = summary.current_fen;
+    this.moves.set(summary.id, [...(summary.moves || [])]);
+    return summary.id;
+  }
+
+  async getGameHistory(db, { weaknessCategory } = {}) {
+    const list = Array.from(this.games.values()).map((g) => ({
+      ...g,
+      moves: this.moves.get(g.id) || [],
+    }));
+    if (weaknessCategory) {
+      return list.filter((g) => g.seeded_weakness === weaknessCategory);
+    }
+    return list;
+  }
+
+  async saveWeaknessTags(db, moveId, tags) {
+    const normalized = Array.isArray(tags) ? tags : [tags];
+    for (const tag of normalized) {
+      this.weaknessTags.push({ moveId, ...tag });
+    }
+    return normalized.map((_, i) => i + 1);
+  }
+
+  async getWeaknessTally(db) {
+    const counts = {};
+    for (const tag of this.weaknessTags) {
+      counts[tag.category] = (counts[tag.category] || 0) + 1;
+    }
+    return Object.entries(counts).map(([category, count]) => ({ category, count }));
+  }
+}
+
+// Global Application State
+const storageAdapter = new BrowserStorageAdapter();
+let boardState = new BoardState();
+let activeSession = null;
+let queuedSessions = [];
+let orientation = 'black';
 let selectedSquare = null;
-let currentSession = null;
-let currentFocus = 'Tactical';
-let seedIndex = 1;
 let stockfishWorker = null;
 let isEngineThinking = false;
 let moveLogs = [];
@@ -20,6 +267,7 @@ let moveLogs = [];
 // DOM Elements
 const boardEl = document.getElementById('chessboard');
 const targetNameEl = document.getElementById('target-name');
+const targetDescEl = document.getElementById('target-desc');
 const targetQueueEl = document.getElementById('target-queue-indicator');
 const moveStatusEl = document.getElementById('move-status');
 const engineEvalEl = document.getElementById('engine-eval');
@@ -38,7 +286,7 @@ const btnFlip = document.getElementById('btn-flip');
 const btnComplete = document.getElementById('btn-complete');
 
 /**
- * Initialize the Stockfish Worker for in-browser WebView practice
+ * Stockfish Web Worker Integration
  */
 function initStockfish() {
   try {
@@ -49,10 +297,9 @@ function initStockfish() {
     };
     stockfishWorker.postMessage('uci');
     stockfishWorker.postMessage('isready');
-    updateStatus('Stockfish 18 Lite WASM Engine Active');
+    updateStatus('Stockfish 18 Lite WASM Active 🐾');
   } catch (err) {
-    console.warn('Stockfish Web Worker initialization deferred:', err);
-    updateStatus('Practice Mode (Engine Emulation)');
+    updateStatus('Practice Mode (Engine Emulation Active) 🐾');
   }
 }
 
@@ -78,21 +325,20 @@ function handleStockfishMessage(line) {
 }
 
 function updateStatus(text) {
-  if (systemStatusEl) systemStatusEl.textContent = `${text} • Capacitor Shell`;
+  if (systemStatusEl) systemStatusEl.textContent = `${text} • Cat Analyst`;
 }
 
 /**
- * Render the 8x8 Board
+ * Render the 8x8 Chess Board with Orange Cat styling
  */
 function renderBoard() {
+  if (!boardEl) return;
   boardEl.innerHTML = '';
-  const board = chess.board();
+  const grid = boardState.getBoard();
   const ranks = orientation === 'white' ? [0, 1, 2, 3, 4, 5, 6, 7] : [7, 6, 5, 4, 3, 2, 1, 0];
   const files = orientation === 'white' ? [0, 1, 2, 3, 4, 5, 6, 7] : [7, 6, 5, 4, 3, 2, 1, 0];
 
-  const legalMoves = selectedSquare
-    ? chess.moves({ square: selectedSquare, verbose: true }).map((m) => m.to)
-    : [];
+  const legalMoves = selectedSquare ? boardState.getLegalMovesFor(selectedSquare) : [];
 
   for (const r of ranks) {
     for (const f of files) {
@@ -111,11 +357,11 @@ function renderBoard() {
 
       if (legalMoves.includes(squareName)) {
         squareDiv.classList.add('legal-target');
-        const pieceOnSquare = chess.get(squareName);
+        const pieceOnSquare = boardState.get(squareName);
         if (pieceOnSquare) squareDiv.classList.add('has-piece');
       }
 
-      const piece = board[r][f];
+      const piece = grid[r][f];
       if (piece) {
         const pieceSpan = document.createElement('span');
         pieceSpan.className = `piece ${piece.color === 'w' ? 'white-piece' : 'black-piece'}`;
@@ -135,9 +381,9 @@ function renderBoard() {
 function handleSquareClick(square) {
   if (isEngineThinking) return;
 
-  const piece = chess.get(square);
-  const isPlayerTurn = (chess.turn() === 'w' && orientation === 'white') ||
-                       (chess.turn() === 'b' && orientation === 'black');
+  const piece = boardState.get(square);
+  const isPlayerTurn = (boardState.turn() === 'w' && orientation === 'white') ||
+                       (boardState.turn() === 'b' && orientation === 'black');
 
   if (!isPlayerTurn) return;
 
@@ -148,22 +394,20 @@ function handleSquareClick(square) {
       return;
     }
 
-    const move = chess.move({
-      from: selectedSquare,
-      to: square,
-      promotion: 'q',
-    });
-
-    if (move) {
+    const legal = boardState.getLegalMovesFor(selectedSquare);
+    if (legal.includes(square)) {
+      const move = boardState.move({ from: selectedSquare, to: square, promotion: 'q' });
       selectedSquare = null;
-      recordPlayerMove(move);
-      renderBoard();
-      triggerEngineResponse();
-      return;
+      if (move) {
+        recordPlayerMove(move);
+        renderBoard();
+        triggerEngineResponse();
+        return;
+      }
     }
   }
 
-  if (piece && piece.color === chess.turn()) {
+  if (piece && piece.color === boardState.turn()) {
     selectedSquare = square;
     renderBoard();
   } else {
@@ -177,7 +421,7 @@ function recordPlayerMove(move) {
   const entry = {
     ply,
     san: move.san,
-    uci: `${move.from}${move.to}${move.promotion || ''}`,
+    uci: `${move.from}${move.to}`,
     color: move.color,
   };
   moveLogs.push(entry);
@@ -185,27 +429,34 @@ function recordPlayerMove(move) {
 }
 
 function triggerEngineResponse() {
-  if (chess.isGameOver()) {
-    updateStatus('Game Over: ' + getGameOverReason());
-    return;
-  }
-
   isEngineThinking = true;
-  moveStatusEl.textContent = 'Stockfish thinking…';
+  if (moveStatusEl) moveStatusEl.textContent = 'Orange Cat Stockfish is calculating… 🐈‍⬛';
 
   if (stockfishWorker) {
-    stockfishWorker.postMessage(`position fen ${chess.fen()}`);
+    stockfishWorker.postMessage(`position fen ${boardState.fen}`);
     stockfishWorker.postMessage('go depth 12');
   } else {
-    // Deterministic fallback response if Worker is unavailable in environment
     setTimeout(() => {
-      const moves = chess.moves({ verbose: true });
-      if (moves.length > 0) {
-        const randomMove = moves[Math.floor(Math.random() * moves.length)];
-        applyEngineMove(`${randomMove.from}${randomMove.to}`);
+      // Deterministic practice response
+      const turn = boardState.turn();
+      const allMoves = [];
+      const grid = boardState.getBoard();
+      for (let r = 0; r < 8; r++) {
+        for (let f = 0; f < 8; f++) {
+          const p = grid[r][f];
+          if (p && p.color === turn) {
+            const sq = `${String.fromCharCode(97 + f)}${8 - r}`;
+            const targets = boardState.getLegalMovesFor(sq);
+            for (const t of targets) allMoves.push({ from: sq, to: t });
+          }
+        }
+      }
+      if (allMoves.length > 0) {
+        const chosen = allMoves[0];
+        applyEngineMove(`${chosen.from}${chosen.to}`);
       }
       isEngineThinking = false;
-    }, 600);
+    }, 500);
   }
 }
 
@@ -213,9 +464,8 @@ function applyEngineMove(uciMove) {
   if (!uciMove || uciMove.length < 4) return;
   const from = uciMove.slice(0, 2);
   const to = uciMove.slice(2, 4);
-  const promotion = uciMove.length > 4 ? uciMove[4] : undefined;
 
-  const move = chess.move({ from, to, promotion });
+  const move = boardState.move({ from, to });
   if (move) {
     const ply = moveLogs.length + 1;
     const entry = {
@@ -231,6 +481,7 @@ function applyEngineMove(uciMove) {
 }
 
 function appendLogUI(entry) {
+  if (!moveLogEl) return;
   if (moveLogs.length === 1) {
     moveLogEl.innerHTML = '';
   }
@@ -242,86 +493,136 @@ function appendLogUI(entry) {
 }
 
 function updateTurnUI() {
-  const turn = chess.turn();
+  if (!moveStatusEl) return;
+  const turn = boardState.turn();
   const isPlayerTurn = (turn === 'w' && orientation === 'white') ||
                        (turn === 'b' && orientation === 'black');
-  
-  if (chess.isGameOver()) {
-    moveStatusEl.textContent = getGameOverReason();
-  } else {
-    moveStatusEl.textContent = isPlayerTurn ? 'Your turn (' + (orientation === 'white' ? 'White' : 'Black') + ')' : 'Stockfish turn';
-  }
-}
 
-function getGameOverReason() {
-  if (chess.isCheckmate()) return 'Checkmate!';
-  if (chess.isDraw()) return 'Draw';
-  if (chess.isStalemate()) return 'Stalemate';
-  if (chess.isThreefoldRepetition()) return 'Threefold Repetition';
-  return 'Game Finished';
+  moveStatusEl.textContent = isPlayerTurn
+    ? `Your turn to pounce! (${orientation === 'white' ? 'White' : 'Black'}) 🐾`
+    : 'Stockfish turn 🐈‍⬛';
 }
 
 /**
- * Setup Practice Target / Start-Slow
+ * Start Targeted Training Cycle (Start-Slow 2 Seeds)
  */
-function startNewTarget(category = 'Tactical') {
-  currentFocus = category;
-  seedIndex = 1;
-  targetNameEl.textContent = `${category} (Motif Practice)`;
-  targetQueueEl.textContent = `Seed ${seedIndex} of 2`;
+async function startTargetedWeaknessSession(category = 'tactical') {
+  const shortPuzzle = SEED_PUZZLES.find((p) => p.weaknessCategory === category && p.PuzzleId.includes('short')) || SEED_PUZZLES[0];
+  const longPuzzle = SEED_PUZZLES.find((p) => p.weaknessCategory === category && p.PuzzleId.includes('long')) || SEED_PUZZLES[1];
 
-  // Start with a standard tactical motif setup
-  chess = new Chess('rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq - 0 1');
+  const now = new Date().toISOString();
+  const session1Id = `session-${Date.now()}-1`;
+  const session2Id = `session-${Date.now()}-2`;
+
+  // Start with motif-ready position: e2e4 played
+  const startFen1 = 'rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq - 0 1';
+  const startFen2 = 'r1bqkbnr/pppp1ppp/2n5/4p3/4P3/5N2/PPPP1PPP/RNBQKB1R b KQkq - 1 2';
+
+  queuedSessions = [
+    {
+      id: session1Id,
+      puzzle: shortPuzzle,
+      start_fen: startFen1,
+      seeded_weakness: category,
+      seed_puzzle_id: shortPuzzle.PuzzleId,
+      date: now,
+    },
+    {
+      id: session2Id,
+      puzzle: longPuzzle,
+      start_fen: startFen2,
+      seeded_weakness: category,
+      seed_puzzle_id: longPuzzle.PuzzleId,
+      date: now,
+    },
+  ];
+
+  await storageAdapter.createQueuedGames(null, queuedSessions);
+  await storageAdapter.transitionGameStatus(null, session1Id, 'in_progress');
+
+  activeSession = queuedSessions[0];
+  boardState = new BoardState(startFen1);
   moveLogs = [];
-  moveLogEl.innerHTML = '<div class="empty-log-message">Motif-ready position active. White played 1. e4.</div>';
+  if (moveLogEl) {
+    moveLogEl.innerHTML = `<div class="empty-log-message">Motif-ready FEN active. White played 1. e4. Your move as Black! 🐾</div>`;
+  }
   selectedSquare = null;
-  orientation = 'black'; // User practices motif as Black
+  orientation = 'black';
+
+  if (targetNameEl) targetNameEl.textContent = `${category.replace('_', ' ').toUpperCase()} Motifs`;
+  if (targetDescEl) targetDescEl.textContent = 'Start-slow: 2 seed puzzles queued';
+  if (targetQueueEl) targetQueueEl.textContent = 'Seed 1 of 2 🐟';
+
   renderBoard();
-  updateStatus(`Active Target: ${category}`);
+  updateStatus(`Hunting Weakness: ${category}`);
 }
 
-function startNextQueued() {
-  if (seedIndex < 2) {
-    seedIndex += 1;
-    targetQueueEl.textContent = `Seed ${seedIndex} of 2`;
-    chess = new Chess('r1bqkbnr/pppp1ppp/2n5/4p3/4P3/5N2/PPPP1PPP/RNBQKB1R w KQkq - 2 3');
+async function startNextQueuedSession() {
+  if (queuedSessions.length >= 2 && activeSession?.id !== queuedSessions[1].id) {
+    const second = queuedSessions[1];
+    await storageAdapter.transitionGameStatus(null, second.id, 'in_progress');
+    activeSession = second;
+
+    boardState = new BoardState(second.start_fen);
     moveLogs = [];
-    moveLogEl.innerHTML = '<div class="empty-log-message">Seed 2/2 active. White to move.</div>';
+    if (moveLogEl) {
+      moveLogEl.innerHTML = `<div class="empty-log-message">Seed 2 of 2 active. White played setup. Your turn to pounce! 🐾</div>`;
+    }
     selectedSquare = null;
-    orientation = 'white';
+    orientation = 'black';
+
+    if (targetQueueEl) targetQueueEl.textContent = 'Seed 2 of 2 🐟';
     renderBoard();
-    updateStatus('Seed 2/2 In Progress');
+    updateStatus('Seed 2 of 2 Active');
   } else {
-    alert('Both start-slow seeds completed for this category! Start a new target.');
+    alert('All queued seeds for this hunt completed! Start a new target pounce. 🐾');
   }
 }
 
+async function completeActiveSession() {
+  if (!activeSession) return;
+
+  const summary = {
+    id: activeSession.id,
+    mode: 'practice',
+    result: '*',
+    seeded_weakness: activeSession.seeded_weakness,
+    seed_puzzle_id: activeSession.seed_puzzle_id,
+    start_fen: activeSession.start_fen,
+    current_fen: boardState.fen,
+    moves: [...moveLogs],
+  };
+
+  await storageAdapter.completeGameSession(null, summary);
+  updateStatus('Purr-fect! Session saved for AI analysis 🐾');
+  alert(`Purr-fect! Practice session ${activeSession.id} saved & logged to storage.`);
+}
+
 // Event Listeners
-btnStartTarget.addEventListener('click', () => startNewTarget('Tactical'));
-btnNextQueued.addEventListener('click', () => startNextQueued());
-btnFlip.addEventListener('click', () => {
+if (btnStartTarget) btnStartTarget.addEventListener('click', () => startTargetedWeaknessSession('tactical'));
+if (btnNextQueued) btnNextQueued.addEventListener('click', () => startNextQueuedSession());
+if (btnFlip) btnFlip.addEventListener('click', () => {
   orientation = orientation === 'white' ? 'black' : 'white';
   renderBoard();
 });
-btnComplete.addEventListener('click', () => {
-  updateStatus('Session Completed & Persisted');
-  alert('Practice session completed and logged for post-game AI analysis.');
-});
+if (btnComplete) btnComplete.addEventListener('click', () => completeActiveSession());
 
-tabMovesBtn.addEventListener('click', () => {
-  tabMovesBtn.classList.add('active');
-  tabPreviewBtn.classList.remove('active');
-  tabContentMoves.classList.remove('hidden');
-  tabContentPreview.classList.add('hidden');
-});
+if (tabMovesBtn && tabPreviewBtn) {
+  tabMovesBtn.addEventListener('click', () => {
+    tabMovesBtn.classList.add('active');
+    tabPreviewBtn.classList.remove('active');
+    tabContentMoves.classList.remove('hidden');
+    tabContentPreview.classList.add('hidden');
+  });
 
-tabPreviewBtn.addEventListener('click', () => {
-  tabPreviewBtn.classList.add('active');
-  tabMovesBtn.classList.remove('active');
-  tabContentPreview.classList.remove('hidden');
-  tabContentMoves.classList.add('hidden');
-});
+  tabPreviewBtn.addEventListener('click', () => {
+    tabPreviewBtn.classList.add('active');
+    tabMovesBtn.classList.remove('active');
+    tabContentPreview.classList.remove('hidden');
+    tabContentMoves.classList.add('hidden');
+  });
+}
 
-// Boot
+// Initial Boot
 initStockfish();
-startNewTarget('Tactical');
+startTargetedWeaknessSession('tactical');

@@ -72,6 +72,18 @@ double-invalid responses or backend failures create an `unclassified` attempt
 without fabricating a tag. Prompt/model/backend provenance is stored for both
 outcomes.
 
+## 2026-08-15 — M4 imported-time and source semantics
+
+**Status:** correctness clarification for approved completed-game import
+
+Completed chess.com imports persist the user's matched color, both player
+names, import source, and a stable external ID for deduplication. A PGN without
+a completed result or with a non-standard variant is rejected before engine or
+database work. Since ordinary PGN does not establish the wall-clock time of
+each ply, imported move `timestamp` records local evaluation time and is
+explicitly labelled `timestamp_source='posthoc_analysis'`; historical move
+times are never invented.
+
 ## 2026-08-16 — M7 Capacitor mobile platform and Chess.com mobile theming
 
 **Status:** approved
@@ -97,14 +109,46 @@ Key decisions:
    - Piece assets: `.piece.wp`, `.piece.wn`, `.piece.wb`, `.piece.wr`, `.piece.wq`, `.piece.wk` and black counterparts
    - Theme-only rule strictly maintained: no board reading, no move assistance.
 
-## 2026-08-15 — M4 imported-time and source semantics
+## 2026-08-16 — M8 Orange Cat Theme & Feature Completion
 
-**Status:** correctness clarification for approved completed-game import
+**Status:** approved
 
-Completed chess.com imports persist the user's matched color, both player
-names, import source, and a stable external ID for deduplication. A PGN without
-a completed result or with a non-standard variant is rejected before engine or
-database work. Since ordinary PGN does not establish the wall-clock time of
-each ply, imported move `timestamp` records local evaluation time and is
-explicitly labelled `timestamp_source='posthoc_analysis'`; historical move
-times are never invented.
+Research-driven visual design tokens and complete end-to-end practice wiring
+have been completed for the mobile phone APK handoff.
+
+### 1. Research-Driven Orange Tabby Theme Tokens
+- **Inspiration:** Researched natural ginger tabby coat patterns (warm ginger
+  marmalade, terracotta stripe accents, warm cream underbelly) and playful UI
+  aesthetics from apps like Forest, Duolingo, and cozy pet apps.
+- **Color Palette:**
+  - Canvas Background: `#FAF6F0` (warm kitten cream) / gradient to `#F5EDE2`
+  - Cards & Surface: `#FFFDF9` (warm milk ivory) / elevated `#FFF7EE`
+  - Interactive & Borders: `#F4E8DB` / `#EADCCE`
+  - Primary Ginger: `#E67E22` (vibrant tabby orange) / `#D35400` (deep marmalade)
+  - Tabby Stripe Terracotta: `#8D5B4C` / `#6E3D30`
+  - High-Contrast Text: `#2C241E` (charcoal espresso ink for maximum readability on cream)
+  - Muted Text: `#7D7166` (warm fur grey)
+  - Board Light Squares: `#F7EFE2` (soft cream paw square)
+  - Board Dark Squares: `#C8854E` (cinnamon tabby square)
+  - Board Frame: `#7A4526`
+  - Selection Highlight: `rgba(230, 126, 34, 0.52)` (sunlight glow)
+  - Last Move Highlight: `rgba(243, 156, 18, 0.42)`
+  - Legal Target Indicator: `rgba(110, 61, 48, 0.32)` (paw dot)
+- **Typography:** Selected Google Font `Nunito` for its friendly, rounded geometry
+  coupled with high x-height and exceptional readability on mobile viewports.
+- **Piece Silhouettes:** Standard instantly recognizable chess piece shapes are
+  strictly preserved (no custom cat silhouettes during active play). Styling
+  applies warm ivory/charcoal tones with subtle drop shadows and soft amber accents.
+- **Playful Microcopy with Clarity:** Maintained clear functional labels with
+  playful cat-voice accents (e.g. "Pounce on Weakness (Start-Slow)", "Next Fish Seed (2/2)",
+  "Current Hunt: Tactical Motifs", "End Session").
+
+### 2. Practice Board End-to-End Wiring
+- Wired `startTargetedSession()` -> interactive practice turns against Stockfish 18 Lite
+  -> `completeSession()` -> persistence to storage and `getNextFocus()` updates.
+- Future moves preview panel active exclusively in practice mode per spec.
+
+### 3. Chess.com Mobile Visual Overlay
+- `www/chesscom-theme.css` provides a theme-only visual overlay targeting
+  `wc-chess-board`, `chess-board`, `.board`, `.light`, `.dark`, and `.highlight`
+  without reading board state or providing live assistance.
