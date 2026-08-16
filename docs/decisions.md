@@ -72,6 +72,31 @@ double-invalid responses or backend failures create an `unclassified` attempt
 without fabricating a tag. Prompt/model/backend provenance is stored for both
 outcomes.
 
+## 2026-08-16 — M7 Capacitor mobile platform and Chess.com mobile theming
+
+**Status:** approved
+
+The primary platform target is transitioned to Capacitor (iOS/Android) while
+maintaining Electron desktop support in secondary priority.
+
+Key decisions:
+1. **Parallel Storage Architecture:** To avoid breaking the maintained Electron
+   desktop path, `/storage/db.js` and `/data/puzzleDb.js` remain intact with
+   synchronous `node:sqlite`. Parallel async modules (`/storage/mobileDb.js`
+   and `/storage/mobilePuzzleDb.js`) provide the async `@capacitor-community/sqlite`
+   implementations for mobile WebViews.
+2. **Dependency-Injected Orchestrator:** `TrainingOrchestrator` in `/core/orchestrator.js`
+   accepts an injected storage adapter, executing `await` on storage methods so it
+   seamlessly supports both synchronous and asynchronous backends without code duplication.
+3. **Chess.com Mobile DOM Structure:** Inspection confirms Chess.com mobile web layout
+   uses the same `<wc-chess-board>` and `<chess-board>` web component host elements
+   and `.piece.[color][type]` classes (e.g. `.piece.wp`, `.piece.bk`) as desktop.
+   However, coordinate labels and board dimensions use responsive CSS variables
+   (e.g., `--custom-board-size`). The visual theme injection overlay targets:
+   - Board container: `wc-chess-board, chess-board, .board`
+   - Piece assets: `.piece.wp`, `.piece.wn`, `.piece.wb`, `.piece.wr`, `.piece.wq`, `.piece.wk` and black counterparts
+   - Theme-only rule strictly maintained: no board reading, no move assistance.
+
 ## 2026-08-15 — M4 imported-time and source semantics
 
 **Status:** correctness clarification for approved completed-game import

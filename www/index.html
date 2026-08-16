@@ -1,0 +1,100 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+  <title>Chess Analyst — Practice Board</title>
+  <link rel="stylesheet" href="index.css">
+</head>
+<body>
+  <div id="app" class="app-container">
+    <!-- Header -->
+    <header class="app-header">
+      <div class="header-content">
+        <div class="brand">
+          <div class="logo-icon">♟</div>
+          <h1>Chess Analyst</h1>
+        </div>
+        <div class="session-badge" id="session-badge">Practice Mode</div>
+      </div>
+    </header>
+
+    <!-- Main Content Area -->
+    <main class="main-content">
+      <!-- Target/Weakness Header -->
+      <section class="target-card" id="target-card">
+        <div class="target-info">
+          <div class="target-label">Current Focus:</div>
+          <div class="target-name" id="target-name">Tactical (Motif Practice)</div>
+        </div>
+        <div class="target-queue-indicator" id="target-queue-indicator">Seed 1 of 2</div>
+      </section>
+
+      <!-- Board Section -->
+      <section class="board-section">
+        <div class="player-bar opponent-bar">
+          <div class="player-profile">
+            <span class="player-avatar">🤖</span>
+            <span class="player-name">Stockfish 18 Lite</span>
+            <span class="player-rating">(Skill: 10)</span>
+          </div>
+          <div class="eval-indicator" id="engine-eval">Eval: 0.00</div>
+        </div>
+
+        <div class="board-wrapper">
+          <div id="chessboard" class="chessboard" aria-label="Chess Board"></div>
+        </div>
+
+        <div class="player-bar user-bar">
+          <div class="player-profile">
+            <span class="player-avatar">👤</span>
+            <span class="player-name">You</span>
+            <span class="turn-dot" id="turn-indicator"></span>
+          </div>
+          <div class="move-status" id="move-status">Your turn (White)</div>
+        </div>
+      </section>
+
+      <!-- Move Log & Future Moves Preview Section -->
+      <section class="analysis-panel">
+        <div class="panel-tabs">
+          <button class="tab-btn active" id="tab-moves">Move Log</button>
+          <button class="tab-btn" id="tab-preview">Future Moves Preview</button>
+        </div>
+
+        <div class="tab-content" id="tab-content-moves">
+          <div class="move-log-container" id="move-log">
+            <div class="empty-log-message">Session started. Make a move on the board.</div>
+          </div>
+        </div>
+
+        <div class="tab-content hidden" id="tab-content-preview">
+          <div class="pv-container" id="pv-container">
+            <div class="pv-label">Principal Variation (Best Move Sequence):</div>
+            <div class="pv-moves" id="pv-moves">—</div>
+            <p class="preview-note">Preview is enabled exclusively during local practice vs Stockfish.</p>
+          </div>
+        </div>
+      </section>
+
+      <!-- Action Controls -->
+      <section class="controls-section">
+        <button id="btn-start-target" class="btn btn-primary">Start New Target (Start-Slow)</button>
+        <button id="btn-next-queued" class="btn btn-secondary">Next Queued Seed</button>
+        <button id="btn-flip" class="btn btn-icon" title="Flip Board">🔄</button>
+        <button id="btn-complete" class="btn btn-danger">Complete Session</button>
+      </section>
+    </main>
+
+    <!-- Bottom Navigation / Status -->
+    <footer class="app-footer">
+      <div class="status-indicator">
+        <span class="status-dot live"></span>
+        <span id="system-status">Ready • Capacitor Shell Active</span>
+      </div>
+    </footer>
+  </div>
+
+  <script type="module" src="app.js"></script>
+</body>
+</html>

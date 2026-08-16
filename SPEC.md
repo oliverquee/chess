@@ -3,7 +3,10 @@ Personal-use only. Any contributor/tool reading this repo must follow these
 decisions exactly — do not reintroduce cut scope or invent alternatives.
 
 ## Platform
-Electron desktop app (not a website for v1).
+Primary: Capacitor (iOS/Android), wrapping the existing engine/data/core
+logic in a native WebView shell.
+Secondary: Electron desktop app (already built, maintained but not the
+active development focus).
 
 ## Chess.com integration
 Embedded external-content surface, THEME-ONLY overlay (CSS/JS visual skin).

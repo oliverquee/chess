@@ -48,7 +48,7 @@ test('M2 runs weakness → queue → practice → persist → analyzed → next-
   });
 
   try {
-    const started = orchestrator.startTargetedSession(['practical_time', 'tactical']);
+    const started = await orchestrator.startTargetedSession(['practical_time', 'tactical']);
     assert.equal(started.weaknessCategory, 'tactical');
     assert.equal(started.skipped[0].category, 'practical_time');
     assert.deepEqual(started.queued.map((item) => item.id), ['session-1', 'session-2']);
@@ -57,7 +57,7 @@ test('M2 runs weakness → queue → practice → persist → analyzed → next-
 
     await started.activeSession.playTurn('c7c5');
     const summary = started.activeSession.end('*');
-    orchestrator.completeSession(summary);
+    await orchestrator.completeSession(summary);
     assert.equal(getGameStatus(db, 'session-1'), 'completed');
 
     const stored = getGameHistory(db, { weaknessCategory: 'tactical' })
@@ -67,7 +67,7 @@ test('M2 runs weakness → queue → practice → persist → analyzed → next-
     assert.equal(stored.moves.length, 2);
     saveWeaknessTags(db, stored.moves[0].id, { category: 'tactical', severity: 'high' });
 
-    orchestrator.markAnalyzed('session-1');
+    await orchestrator.markAnalyzed('session-1');
     assert.equal(getGameStatus(db, 'session-1'), 'analyzed');
     assert.throws(
       () => transitionGameStatus(db, 'session-2', 'analyzed'),
@@ -75,11 +75,11 @@ test('M2 runs weakness → queue → practice → persist → analyzed → next-
     );
     assert.equal(getGameStatus(db, 'session-2'), 'queued');
 
-    const nextFocus = orchestrator.getNextFocus();
+    const nextFocus = await orchestrator.getNextFocus();
     assert.equal(nextFocus.weaknessCategory, 'tactical');
     assert.equal(nextFocus.puzzles.length, 2);
 
-    const second = orchestrator.startNextQueuedSession();
+    const second = await orchestrator.startNextQueuedSession();
     assert.equal(second.gameId, 'session-2');
     assert.equal(getGameStatus(db, 'session-2'), 'in_progress');
   } finally {
@@ -88,7 +88,7 @@ test('M2 runs weakness → queue → practice → persist → analyzed → next-
   }
 });
 
-test('target queue creation is atomic when session IDs collide', () => {
+test('target queue creation is atomic when session IDs collide', async () => {
   const db = initDb(':memory:');
   const puzzleDb = seedPuzzleDb();
   const orchestrator = new TrainingOrchestrator({
@@ -99,7 +99,7 @@ test('target queue creation is atomic when session IDs collide', () => {
   });
 
   try {
-    assert.throws(
+    await assert.rejects(
       () => orchestrator.startTargetedSession(['tactical']),
       /UNIQUE constraint failed/,
     );
@@ -111,7 +111,7 @@ test('target queue creation is atomic when session IDs collide', () => {
   }
 });
 
-test('engine construction failure does not falsely mark a queued game in progress', () => {
+test('engine construction failure does not falsely mark a queued game in progress', async () => {
   const db = initDb(':memory:');
   const puzzleDb = seedPuzzleDb();
   let id = 0;
@@ -123,7 +123,7 @@ test('engine construction failure does not falsely mark a queued game in progres
   });
 
   try {
-    assert.throws(
+    await assert.rejects(
       () => orchestrator.startTargetedSession(['tactical']),
       /engine unavailable/,
     );
