@@ -59,3 +59,27 @@ in `games.status` rather than existing only in renderer or process memory.
 Starting a new target inserts two queued game rows and starts the first.
 Completing the active game writes its moves and advances its status atomically;
 analysis later performs the separate completed-to-analyzed transition.
+
+## 2026-08-15 — M3 validated analysis boundary
+
+**Status:** approved implementation of the handoff analysis contract
+
+Each of the three analysis tasks has its own versioned prompt file and output
+validator. The shared runner retries invalid model output exactly once with
+validation feedback. Per-move attempts are persisted separately from immutable
+game/move evidence: valid classifications create a fixed-taxonomy weakness tag;
+double-invalid responses or backend failures create an `unclassified` attempt
+without fabricating a tag. Prompt/model/backend provenance is stored for both
+outcomes.
+
+## 2026-08-15 — M4 imported-time and source semantics
+
+**Status:** correctness clarification for approved completed-game import
+
+Completed chess.com imports persist the user's matched color, both player
+names, import source, and a stable external ID for deduplication. A PGN without
+a completed result or with a non-standard variant is rejected before engine or
+database work. Since ordinary PGN does not establish the wall-clock time of
+each ply, imported move `timestamp` records local evaluation time and is
+explicitly labelled `timestamp_source='posthoc_analysis'`; historical move
+times are never invented.

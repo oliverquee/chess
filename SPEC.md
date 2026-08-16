@@ -13,6 +13,11 @@ during any chess.com gameplay. This is a hard rule — fair-play/ToS risk.
 Completed standard chess.com games may be imported post-hoc from the public
 archive API or manually exported PGN, evaluated locally, and saved with
 `mode='imported'`. Active-game board extraction or analysis is forbidden.
+Imported records persist the matched user's White/Black color and import source
+identifier. Only finished PGNs with a decisive/draw result are accepted; `*`
+and non-standard variants are rejected.
+Stockfish evidence is generated for every imported ply, but downstream
+per-move weakness classification processes only the matched user's plies.
 
 ## Stockfish practice mode
 - A locally vendored lite, single-threaded stockfish.js WASM build runs in a
@@ -31,8 +36,8 @@ archive API or manually exported PGN, evaluated locally, and saved with
 Standalone page. User pastes in game history (from Stockfish practice or
 chess.com archived/exported games). Never connected live to any gameplay.
 Claude API (user key) and local Ollama are implemented behind one backend
-abstraction selected at runtime. Three structured prompts (see
-`/prompts/ai-analysis.md`):
+abstraction selected at runtime. Three structured, independently versioned
+prompt files live under `/prompts`:
 1. Per-move classification — input includes FEN before the move, move played,
    engine best move, normalized eval delta, and game phase. Structured JSON
    output only, using the fixed taxonomy below.
@@ -43,6 +48,12 @@ abstraction selected at runtime. Three structured prompts (see
 Every stored classification records `model_used`, `backend`, `prompt_version`,
 and `analysis_timestamp`; store `prompt_hash` when practical. LLM calls and
 secrets must remain outside an untrusted Electron renderer.
+
+All model output is parsed and schema-validated before persistence. Invalid
+output is retried once with validation feedback. A second invalid response or
+backend failure records an `unclassified` attempt with provenance and never
+writes a weakness tag containing invalid taxonomy data. The original completed
+game and move records remain intact.
 
 ## Fixed weakness taxonomy (do not deviate — needed for trend tracking)
 tactical | king_safety | pawn_structure | piece_activity |
@@ -81,6 +92,11 @@ The `moves` record stores `eval_cp_before`, `eval_cp_after`, `best_move`,
 `principal_variation`, and `is_mate_score` in addition to move/FEN/timestamp
 fields. Existing pre-fix databases may retain legacy `eval_cp` during migration,
 but new writes use the explicit before/after fields.
+
+Practice move timestamps are live-recorded. Because completed PGN normally does
+not prove an exact wall-clock time for each ply, imported rows store the local
+post-hoc analysis time and set `timestamp_source='posthoc_analysis'`; they must
+not fabricate historical per-move times.
 
 `games.status` durably owns the session lifecycle:
 `queued → in_progress → completed → analyzed`. Invalid or skipped transitions
