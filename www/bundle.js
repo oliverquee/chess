@@ -1118,21 +1118,21 @@ peg$SyntaxError.buildMessage = function(expected, found) {
       return expectation.description;
     }
   };
-  function hex(ch) {
+  function hex2(ch) {
     return ch.charCodeAt(0).toString(16).toUpperCase();
   }
   function literalEscape(s) {
     return s.replace(/\\/g, "\\\\").replace(/"/g, '\\"').replace(/\0/g, "\\0").replace(/\t/g, "\\t").replace(/\n/g, "\\n").replace(/\r/g, "\\r").replace(/[\x00-\x0F]/g, function(ch) {
-      return "\\x0" + hex(ch);
+      return "\\x0" + hex2(ch);
     }).replace(/[\x10-\x1F\x7F-\x9F]/g, function(ch) {
-      return "\\x" + hex(ch);
+      return "\\x" + hex2(ch);
     });
   }
   function classEscape(s) {
     return s.replace(/\\/g, "\\\\").replace(/\]/g, "\\]").replace(/\^/g, "\\^").replace(/-/g, "\\-").replace(/\0/g, "\\0").replace(/\t/g, "\\t").replace(/\n/g, "\\n").replace(/\r/g, "\\r").replace(/[\x00-\x0F]/g, function(ch) {
-      return "\\x0" + hex(ch);
+      return "\\x0" + hex2(ch);
     }).replace(/[\x10-\x1F\x7F-\x9F]/g, function(ch) {
-      return "\\x" + hex(ch);
+      return "\\x" + hex2(ch);
     });
   }
   function describeExpectation(expectation) {
@@ -5096,6 +5096,7 @@ var TrainingOrchestrator = class {
     storage,
     puzzleLibrary,
     engineFactory,
+    skillLevel = 10,
     idFactory = defaultIdFactory,
     now = () => (/* @__PURE__ */ new Date()).toISOString()
   }) {
@@ -5107,14 +5108,24 @@ var TrainingOrchestrator = class {
     }
     if (!puzzleLibrary?.filter) throw new TypeError("puzzleLibrary must provide filter(query).");
     if (typeof engineFactory !== "function") throw new TypeError("engineFactory must be a function.");
+    if (!Number.isInteger(skillLevel) || skillLevel < 0 || skillLevel > 20) {
+      throw new RangeError("skillLevel must be an integer from 0 to 20.");
+    }
     this.db = db2;
     this.storage = storage;
     this.puzzleLibrary = puzzleLibrary;
     this.engineFactory = engineFactory;
+    this.skillLevel = skillLevel;
     this.idFactory = idFactory;
     this.now = now;
     this.queue = [];
     this.sessions = /* @__PURE__ */ new Map();
+  }
+  setSkillLevel(skillLevel) {
+    if (!Number.isInteger(skillLevel) || skillLevel < 0 || skillLevel > 20) {
+      throw new RangeError("skillLevel must be an integer from 0 to 20.");
+    }
+    this.skillLevel = skillLevel;
   }
   async getNextFocus(rankedWeaknesses) {
     const weaknesses = rankedWeaknesses ?? await this.storage.getWeaknessTally(this.db);
@@ -5126,7 +5137,11 @@ var TrainingOrchestrator = class {
   }
   async startTargetedSession(rankedWeaknesses) {
     const weaknesses = rankedWeaknesses ?? await this.storage.getWeaknessTally(this.db);
-    const focus = await this.getNextFocus(weaknesses);
+    const unresolvedFocus = await this.getNextFocus(weaknesses);
+    const focus = {
+      ...unresolvedFocus,
+      puzzles: await Promise.all(unresolvedFocus.puzzles ?? [])
+    };
     if (!focus.weaknessCategory) return { ...focus, activeSession: null, queued: [] };
     if (focus.puzzles.length !== 2) {
       throw new Error(`Start-slow targeting must return exactly two puzzles; received ${focus.puzzles.length}.`);
@@ -5157,6 +5172,7 @@ var TrainingOrchestrator = class {
         weaknessCategory: descriptor.weaknessCategory
       },
       engine: this.engineFactory(descriptor),
+      skillLevel: this.skillLevel,
       gameId,
       now: this.now
     });
@@ -5184,6 +5200,14 @@ var TrainingOrchestrator = class {
   }
 };
 
+// data/corpusManifest.js
+var CORPUS_MANIFEST = Object.freeze({
+  version: "m9-v1",
+  puzzleCount: 7200,
+  sha256: "0c3be26539d64355de521908d884f4f48bc21d1eda46769f932d45910753cf6e",
+  url: "https://github.com/oliverquee/chess/releases/download/m9-corpus-v1/puzzles-subset.jsonl.gz"
+});
+
 // storage/mobileDb.js
 var mobileDb_exports = {};
 __export(mobileDb_exports, {
@@ -5194,11 +5218,15 @@ __export(mobileDb_exports, {
   getGameHistory: () => getGameHistory,
   getGameStatus: () => getGameStatus,
   getMoveClassifications: () => getMoveClassifications,
+  getProfileStats: () => getProfileStats,
+  getSettings: () => getSettings,
   getWeaknessTally: () => getWeaknessTally,
   initDb: () => initDb,
+  resetUserData: () => resetUserData,
   saveGameSession: () => saveGameSession,
   saveMoveClassification: () => saveMoveClassification,
   saveWeaknessTags: () => saveWeaknessTags,
+  setSetting: () => setSetting,
   transitionGameStatus: () => transitionGameStatus
 });
 
@@ -6123,6 +6151,11 @@ CREATE TABLE IF NOT EXISTS weakness_tags (
   classification_id INTEGER NULL REFERENCES move_classifications(id)
 );
 
+CREATE TABLE IF NOT EXISTS settings (
+  key TEXT PRIMARY KEY,
+  value TEXT NOT NULL
+);
+
 CREATE INDEX IF NOT EXISTS idx_games_seeded_weakness ON games(seeded_weakness);
 CREATE INDEX IF NOT EXISTS idx_moves_game_id ON moves(game_id);
 CREATE INDEX IF NOT EXISTS idx_weakness_tags_category ON weakness_tags(category);
@@ -6147,6 +6180,14 @@ var WEAKNESS_CATEGORIES2 = /* @__PURE__ */ new Set([
 ]);
 var SEVERITIES = /* @__PURE__ */ new Set(["low", "medium", "high"]);
 var ANALYSIS_BACKENDS = /* @__PURE__ */ new Set(["claude", "ollama"]);
+var SETTING_DEFAULTS = Object.freeze({
+  display_name: "",
+  cat_avatar: "orange-tabby",
+  chesscom_username: "lastautumnleaf1",
+  engine_skill_level: "10",
+  theme: "cat"
+});
+var SETTING_KEYS = new Set(Object.keys(SETTING_DEFAULTS));
 function assertDb(db2) {
   if (!db2 || typeof db2.execute !== "function" || typeof db2.run !== "function" || typeof db2.query !== "function") {
     throw new TypeError("db must be a CapacitorSQLite connection.");
@@ -6646,6 +6687,82 @@ async function getWeaknessTally(db2, { sinceGameId } = {}) {
   const res = await db2.query(sql, params);
   return (res.values || []).map((row) => ({ category: row.category, count: Number(row.count) }));
 }
+async function getProfileStats(db2, { recentLimit = 10 } = {}) {
+  assertDb(db2);
+  if (!Number.isInteger(recentLimit) || recentLimit < 1 || recentLimit > 50) {
+    throw new RangeError("recentLimit must be an integer from 1 to 50.");
+  }
+  const totalsRes = await db2.query(`
+    SELECT
+      COUNT(*) AS total_sessions,
+      COALESCE(SUM(move_count), 0) AS total_moves
+    FROM (
+      SELECT g.id, COUNT(m.id) AS move_count
+      FROM games g
+      LEFT JOIN moves m ON m.game_id = g.id
+      WHERE g.status IN ('completed', 'analyzed')
+      GROUP BY g.id
+    )
+  `);
+  const totals = totalsRes.values?.[0] ?? { total_sessions: 0, total_moves: 0 };
+  const recentRes = await db2.query(`
+    SELECT g.id, g.date, g.seeded_weakness, g.result, g.status, COUNT(m.id) AS move_count
+    FROM games g
+    LEFT JOIN moves m ON m.game_id = g.id
+    WHERE g.status IN ('completed', 'analyzed')
+    GROUP BY g.id
+    ORDER BY COALESCE(g.date, '') DESC, g.rowid DESC
+    LIMIT ?
+  `, [recentLimit]);
+  return {
+    totalSessions: Number(totals.total_sessions ?? 0),
+    totalMoves: Number(totals.total_moves ?? 0),
+    weaknessTally: await getWeaknessTally(db2),
+    recentSessions: (recentRes.values || []).map((row) => ({
+      ...row,
+      move_count: Number(row.move_count ?? 0)
+    }))
+  };
+}
+async function getSettings(db2) {
+  assertDb(db2);
+  const res = await db2.query("SELECT key, value FROM settings");
+  const settings2 = { ...SETTING_DEFAULTS };
+  for (const row of res.values || []) {
+    if (SETTING_KEYS.has(row.key)) settings2[row.key] = String(row.value);
+  }
+  return settings2;
+}
+async function setSetting(db2, key, value) {
+  assertDb(db2);
+  if (!SETTING_KEYS.has(key)) throw new RangeError(`Unknown setting: ${key}`);
+  const normalized = String(value ?? "").trim();
+  if (key === "engine_skill_level") {
+    const level = Number(normalized);
+    if (!Number.isInteger(level) || level < 0 || level > 20) {
+      throw new RangeError("engine_skill_level must be an integer from 0 to 20.");
+    }
+  }
+  if (key === "theme" && normalized !== "cat") throw new RangeError("Only the cat theme is currently available.");
+  if (key === "cat_avatar" && !["orange-tabby", "tuxedo", "calico", "black-cat"].includes(normalized)) {
+    throw new RangeError("Unknown cat avatar.");
+  }
+  await db2.run(`
+    INSERT INTO settings (key, value) VALUES (?, ?)
+    ON CONFLICT(key) DO UPDATE SET value = excluded.value
+  `, [key, normalized]);
+  return normalized;
+}
+async function resetUserData(db2) {
+  assertDb(db2);
+  return withTransaction(db2, async () => {
+    await db2.execute("DELETE FROM weakness_tags;");
+    await db2.execute("DELETE FROM move_classifications;");
+    await db2.execute("DELETE FROM moves;");
+    await db2.execute("DELETE FROM games;");
+    await db2.execute("DELETE FROM settings;");
+  });
+}
 
 // storage/mobilePuzzleDb.js
 function normalizeThemeTags(themeTags = []) {
@@ -6765,6 +6882,263 @@ var MobileSqlitePuzzleLibrary = class {
   }
 };
 
+// storage/corpusBootstrap.js
+var PUZZLE_SCHEMA = [
+  `CREATE TABLE IF NOT EXISTS puzzles (
+    puzzle_id TEXT PRIMARY KEY,
+    fen TEXT NOT NULL,
+    moves TEXT NOT NULL,
+    rating INTEGER,
+    step_count INTEGER NOT NULL CHECK(step_count > 0)
+  )`,
+  `CREATE TABLE IF NOT EXISTS puzzle_themes (
+    theme TEXT NOT NULL,
+    puzzle_id TEXT NOT NULL REFERENCES puzzles(puzzle_id) ON DELETE CASCADE,
+    PRIMARY KEY (theme, puzzle_id)
+  ) WITHOUT ROWID`,
+  "CREATE INDEX IF NOT EXISTS idx_puzzles_step_count ON puzzles(step_count)",
+  "CREATE INDEX IF NOT EXISTS idx_puzzle_themes_puzzle_id ON puzzle_themes(puzzle_id)",
+  `CREATE TABLE IF NOT EXISTS corpus_meta (
+    key TEXT PRIMARY KEY,
+    value TEXT NOT NULL
+  )`
+];
+function assertDb2(db2) {
+  if (!db2?.execute || !db2?.run || !db2?.query) {
+    throw new TypeError("db must be an async SQLite connection.");
+  }
+}
+async function ensureCorpusSchema(db2) {
+  assertDb2(db2);
+  await db2.execute("PRAGMA foreign_keys = ON;");
+  for (const statement of PUZZLE_SCHEMA) await db2.execute(`${statement};`);
+}
+async function getCorpusStatus(db2) {
+  assertDb2(db2);
+  await ensureCorpusSchema(db2);
+  const countRes = await db2.query("SELECT COUNT(*) AS count FROM puzzles");
+  const metaRes = await db2.query("SELECT key, value FROM corpus_meta WHERE key IN ('corpus_version', 'corpus_sha256')");
+  const meta = Object.fromEntries((metaRes.values || []).map((row) => [row.key, row.value]));
+  return {
+    populated: Number(countRes.values?.[0]?.count ?? 0) > 0,
+    puzzleCount: Number(countRes.values?.[0]?.count ?? 0),
+    version: meta.corpus_version ?? null,
+    sha256: meta.corpus_sha256 ?? null
+  };
+}
+function hex(bytes) {
+  return [...new Uint8Array(bytes)].map((byte) => byte.toString(16).padStart(2, "0")).join("");
+}
+async function readResponseBytes(response, onProgress) {
+  if (!response.ok) throw new Error(`Corpus download failed with HTTP ${response.status}.`);
+  const total = Number(response.headers.get("content-length") || 0);
+  if (!response.body?.getReader) {
+    const bytes2 = new Uint8Array(await response.arrayBuffer());
+    onProgress?.({ phase: "download", loaded: bytes2.length, total, percent: total ? 100 : null });
+    return bytes2;
+  }
+  const chunks = [];
+  let loaded = 0;
+  const reader = response.body.getReader();
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    chunks.push(value);
+    loaded += value.length;
+    onProgress?.({
+      phase: "download",
+      loaded,
+      total,
+      percent: total ? Math.min(100, Math.round(loaded / total * 100)) : null
+    });
+  }
+  const bytes = new Uint8Array(loaded);
+  let offset = 0;
+  for (const chunk of chunks) {
+    bytes.set(chunk, offset);
+    offset += chunk.length;
+  }
+  return bytes;
+}
+async function decompressGzip(bytes) {
+  if (typeof DecompressionStream !== "function") {
+    throw new Error("This WebView does not support gzip decompression.");
+  }
+  const stream = new Blob([bytes]).stream().pipeThrough(new DecompressionStream("gzip"));
+  return await new Response(stream).text();
+}
+function validatePuzzle(record) {
+  if (!record || typeof record !== "object") throw new Error("Corpus row must be an object.");
+  for (const field of ["puzzleId", "fen", "moves"]) {
+    if (typeof record[field] !== "string" || !record[field].trim()) {
+      throw new Error(`Corpus row has an invalid ${field}.`);
+    }
+  }
+  if (!Number.isInteger(record.stepCount) || record.stepCount < 1) {
+    throw new Error(`Corpus row ${record.puzzleId} has an invalid stepCount.`);
+  }
+  if (!Array.isArray(record.themes) || record.themes.some((theme) => typeof theme !== "string" || !theme)) {
+    throw new Error(`Corpus row ${record.puzzleId} has invalid themes.`);
+  }
+}
+async function importRows(db2, text, manifest, onProgress) {
+  const lines = text.split(/\r?\n/).filter(Boolean);
+  if (lines.length !== manifest.puzzleCount) {
+    throw new Error(`Corpus count mismatch: manifest=${manifest.puzzleCount}, artifact=${lines.length}.`);
+  }
+  await db2.execute("BEGIN IMMEDIATE;");
+  try {
+    await db2.execute("DELETE FROM puzzle_themes;");
+    await db2.execute("DELETE FROM puzzles;");
+    for (let index = 0; index < lines.length; index += 1) {
+      const record = JSON.parse(lines[index]);
+      validatePuzzle(record);
+      await db2.run(
+        "INSERT INTO puzzles (puzzle_id, fen, moves, rating, step_count) VALUES (?, ?, ?, ?, ?)",
+        [record.puzzleId, record.fen, record.moves, record.rating ?? null, record.stepCount]
+      );
+      for (const theme of [...new Set(record.themes)]) {
+        await db2.run("INSERT INTO puzzle_themes (theme, puzzle_id) VALUES (?, ?)", [theme, record.puzzleId]);
+      }
+      if ((index + 1) % 100 === 0 || index + 1 === lines.length) {
+        onProgress?.({
+          phase: "import",
+          loaded: index + 1,
+          total: lines.length,
+          percent: Math.round((index + 1) / lines.length * 100)
+        });
+      }
+    }
+    await db2.run(`
+      INSERT INTO corpus_meta (key, value) VALUES ('corpus_version', ?)
+      ON CONFLICT(key) DO UPDATE SET value = excluded.value
+    `, [manifest.version]);
+    await db2.run(`
+      INSERT INTO corpus_meta (key, value) VALUES ('corpus_sha256', ?)
+      ON CONFLICT(key) DO UPDATE SET value = excluded.value
+    `, [manifest.sha256.toLowerCase()]);
+    await db2.execute("COMMIT;");
+  } catch (error) {
+    try {
+      await db2.execute("ROLLBACK;");
+    } catch {
+    }
+    throw error;
+  }
+}
+async function downloadAndImportCorpus({
+  db: db2,
+  manifest,
+  fetchImpl = globalThis.fetch,
+  onProgress,
+  force = false
+}) {
+  assertDb2(db2);
+  if (!manifest?.url || !manifest?.sha256 || !manifest?.version || !Number.isInteger(manifest?.puzzleCount)) {
+    throw new TypeError("A complete corpus manifest is required.");
+  }
+  if (typeof fetchImpl !== "function") throw new TypeError("fetchImpl must be a function.");
+  const current = await getCorpusStatus(db2);
+  if (!force && current.populated && current.version === manifest.version) {
+    return { ...current, skipped: true };
+  }
+  const response = await fetchImpl(manifest.url);
+  const compressed = await readResponseBytes(response, onProgress);
+  const digest = hex(await crypto.subtle.digest("SHA-256", compressed));
+  if (digest !== manifest.sha256.toLowerCase()) {
+    throw new Error(`Corpus checksum mismatch: expected ${manifest.sha256.toLowerCase()}, received ${digest}.`);
+  }
+  onProgress?.({ phase: "verify", loaded: compressed.length, total: compressed.length, percent: 100 });
+  const text = await decompressGzip(compressed);
+  await importRows(db2, text, manifest, onProgress);
+  return { ...await getCorpusStatus(db2), skipped: false };
+}
+
+// www/profile.js
+var LABELS = Object.freeze({
+  tactical: "Tactical",
+  king_safety: "King safety",
+  pawn_structure: "Pawn structure",
+  piece_activity: "Piece activity",
+  positional_judgment: "Positional judgment",
+  endgame_technique: "Endgame technique",
+  practical_time: "Practical / time"
+});
+var AVATARS = Object.freeze([
+  ["orange-tabby", "\u{1F431} Orange tabby"],
+  ["tuxedo", "\u{1F638} Tuxedo"],
+  ["calico", "\u{1F63A} Calico"],
+  ["black-cat", "\u{1F408}\u200D\u2B1B Black cat"]
+]);
+function engineDifficultyLabel(level) {
+  const value = Number(level);
+  if (value <= 4) return "Gentle kitten";
+  if (value <= 9) return "Curious hunter";
+  if (value <= 14) return "Sharp tabby";
+  if (value <= 18) return "Fierce prowler";
+  return "Grandmaster cat";
+}
+function escapeHtml(value) {
+  return String(value ?? "").replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;").replaceAll('"', "&quot;").replaceAll("'", "&#39;");
+}
+function formatDate(value) {
+  if (!value) return "Date unavailable";
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? escapeHtml(value) : date.toLocaleDateString();
+}
+function weaknessBars(tally) {
+  if (!tally.length) {
+    return '<p class="empty-state">No weakness data yet \u2014 complete and analyze sessions to reveal your hunting pattern.</p>';
+  }
+  const counts = new Map(tally.map((item) => [item.category, Number(item.count)]));
+  const max = Math.max(...counts.values(), 1);
+  return `<div class="weakness-chart" role="img" aria-label="Weakness breakdown">${WEAKNESS_CATEGORIES.map((category) => {
+    const count = counts.get(category) ?? 0;
+    const width = Math.round(count / max * 100);
+    return `<div class="weakness-row"><div class="weakness-label"><span>${LABELS[category]}</span><strong>${count}</strong></div><div class="bar-track"><span class="bar-fill category-${category}" style="width:${width}%"></span></div></div>`;
+  }).join("")}</div>`;
+}
+function recentSessions(sessions) {
+  if (!sessions.length) {
+    return '<p class="empty-state">No sessions yet \u2014 tap Pounce on Weakness to start your first hunt.</p>';
+  }
+  return `<ul class="recent-list">${sessions.map((session) => `<li><div><strong>${formatDate(session.date)}</strong><span>${escapeHtml(LABELS[session.seeded_weakness] ?? session.seeded_weakness ?? "General practice")}</span></div><div class="session-result"><strong>${escapeHtml(session.result ?? "Completed")}</strong><span>${Number(session.move_count ?? 0)} moves</span></div></li>`).join("")}</ul>`;
+}
+function renderProfile({ container, stats, settings: settings2, corpusStatus: corpusStatus2, focus }) {
+  if (!container) throw new TypeError("profile container is required.");
+  const level = Number(settings2.engine_skill_level ?? 10);
+  const avatarOptions = AVATARS.map(([value, label]) => `<option value="${value}"${settings2.cat_avatar === value ? " selected" : ""}>${label}</option>`).join("");
+  const enoughProgress = stats.totalSessions >= 3;
+  container.innerHTML = `
+    <section class="profile-hero">
+      <span class="profile-avatar">${settings2.cat_avatar === "black-cat" ? "\u{1F408}\u200D\u2B1B" : "\u{1F431}"}</span>
+      <div><h2>${escapeHtml(settings2.display_name || "Your Cat Analyst Profile")}</h2><p>${stats.totalSessions ? `${stats.totalSessions} hunts completed` : "Your training story starts here."}</p></div>
+    </section>
+    <section class="profile-card" aria-labelledby="stats-heading">
+      <h2 id="stats-heading">Stats</h2>
+      <div class="stat-grid"><div><strong>${stats.totalSessions}</strong><span>Sessions</span></div><div><strong>${stats.totalMoves}</strong><span>Moves logged</span></div></div>
+      <h3>Current focus</h3>
+      <p class="focus-pill">${focus?.weaknessCategory ? escapeHtml(LABELS[focus.weaknessCategory] ?? focus.weaknessCategory) : "No focus yet"}</p>
+      <h3>Weakness breakdown</h3>${weaknessBars(stats.weaknessTally)}
+      <h3>Recent sessions</h3>${recentSessions(stats.recentSessions)}
+      <h3>Progress over time</h3>
+      ${enoughProgress ? '<p class="progress-ready">Progress tracking is unlocked. More analyzed sessions will make trends clearer.</p>' : '<p class="empty-state">Complete at least 3 sessions to unlock progress-over-time insights.</p>'}
+    </section>
+    <section class="profile-card" aria-labelledby="settings-heading">
+      <h2 id="settings-heading">Settings</h2>
+      <form id="settings-form" class="settings-form">
+        <label>Display name<input name="display_name" maxlength="40" value="${escapeHtml(settings2.display_name)}" autocomplete="name"></label>
+        <label>Cat avatar<select name="cat_avatar">${avatarOptions}</select></label>
+        <label>chess.com username<input name="chesscom_username" maxlength="50" value="${escapeHtml(settings2.chesscom_username)}" autocomplete="off"></label>
+        <label>Engine difficulty <span id="engine-difficulty-label">${engineDifficultyLabel(level)}</span><input name="engine_skill_level" type="range" min="0" max="20" step="1" value="${level}"><output id="engine-level-output">${level}</output></label>
+        <label>Theme<select name="theme"><option value="cat" selected>Orange cat</option></select></label>
+        <button class="btn btn-primary" type="submit">Save settings</button>
+      </form>
+      <div class="corpus-status"><h3>Puzzle corpus</h3><p>${corpusStatus2.populated ? `Version ${escapeHtml(corpusStatus2.version ?? "unknown")} \u2022 ${corpusStatus2.puzzleCount.toLocaleString()} puzzles` : "Not downloaded yet"}</p><button id="btn-corpus-update" class="btn btn-secondary" type="button">${corpusStatus2.populated ? "Re-download corpus" : "Download corpus"}</button></div>
+      <div class="danger-zone"><h3>Reset all data</h3><p>Deletes your sessions, move history, weakness data, and settings. The downloaded puzzle corpus is kept.</p><button id="btn-reset-data" class="btn btn-danger" type="button">Reset all training data</button></div>
+    </section>`;
+}
+
 // www/app.js
 var PIECES = {
   p: "\u265F",
@@ -6802,6 +7176,8 @@ var activeSession = null;
 var selectedSquare = null;
 var boardFlipped = true;
 var isEngineThinking = false;
+var settings = null;
+var corpusStatus = { populated: false, puzzleCount: 0, version: null };
 function setStatus(text) {
   if (systemStatusEl) systemStatusEl.textContent = `${text} \u2022 Cat Analyst`;
 }
@@ -7058,6 +7434,113 @@ async function completeSession() {
     setFatal("Could not save the session.", err);
   }
 }
+function showPage(page) {
+  const profile = page === "profile";
+  el("practice-page")?.classList.toggle("hidden", profile);
+  el("profile-page")?.classList.toggle("hidden", !profile);
+  el("nav-practice")?.classList.toggle("active", !profile);
+  el("nav-profile")?.classList.toggle("active", profile);
+  if (profile) void refreshProfile();
+}
+function setCorpusProgress({ phase, percent }) {
+  const progress = el("corpus-progress");
+  const label = el("corpus-progress-label");
+  progress?.classList.remove("hidden");
+  if (progress && Number.isFinite(percent)) progress.value = percent;
+  if (label) {
+    const action = phase === "import" ? "Importing puzzles" : phase === "verify" ? "Verifying download" : "Downloading puzzle pack";
+    label.textContent = Number.isFinite(percent) ? `${action}\u2026 ${percent}%` : `${action}\u2026`;
+  }
+}
+async function importCorpus({ force = false } = {}) {
+  const button = el("btn-download-corpus");
+  if (!CORPUS_MANIFEST.url || !CORPUS_MANIFEST.sha256) {
+    throw new Error("The M9 corpus release asset has not been published yet.");
+  }
+  if (button) button.disabled = true;
+  try {
+    corpusStatus = await downloadAndImportCorpus({
+      db,
+      manifest: CORPUS_MANIFEST,
+      force,
+      onProgress: setCorpusProgress
+    });
+    el("corpus-first-run")?.classList.add("hidden");
+    if (el("corpus-progress-label")) el("corpus-progress-label").textContent = `${corpusStatus.puzzleCount.toLocaleString()} puzzles ready.`;
+    if (!orchestrator) await initializePractice();
+    await refreshProfile();
+    setStatus("Ready");
+  } catch (error) {
+    console.error("Corpus import failed", error);
+    if (el("corpus-progress-label")) el("corpus-progress-label").textContent = `${error.message} Check your connection and try again.`;
+    throw error;
+  } finally {
+    if (button) button.disabled = false;
+  }
+}
+async function refreshProfile() {
+  if (!db) return;
+  settings = await getSettings(db);
+  const stats = await getProfileStats(db);
+  corpusStatus = await getCorpusStatus(db);
+  let focus = null;
+  if (orchestrator && corpusStatus.populated) {
+    try {
+      focus = await orchestrator.getNextFocus();
+    } catch (error) {
+      console.warn("Could not resolve profile focus", error);
+    }
+  }
+  const container = el("profile-page");
+  renderProfile({ container, stats, settings, corpusStatus, focus });
+  const range = container.querySelector('[name="engine_skill_level"]');
+  range?.addEventListener("input", () => {
+    const output = el("engine-level-output");
+    const label = el("engine-difficulty-label");
+    if (output) output.textContent = range.value;
+    if (label) label.textContent = engineDifficultyLabel(range.value);
+  });
+  el("settings-form")?.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const form = new FormData(event.currentTarget);
+    for (const key of ["display_name", "cat_avatar", "chesscom_username", "engine_skill_level", "theme"]) {
+      await setSetting(db, key, form.get(key));
+    }
+    settings = await getSettings(db);
+    orchestrator?.setSkillLevel(Number(settings.engine_skill_level));
+    const display = el("engine-skill-display");
+    if (display) display.textContent = `Engine Skill: ${settings.engine_skill_level}`;
+    setStatus("Settings saved");
+    await refreshProfile();
+  });
+  el("btn-corpus-update")?.addEventListener("click", () => importCorpus({ force: true }).catch(() => {
+  }));
+  el("btn-reset-data")?.addEventListener("click", async () => {
+    if (!window.confirm("Delete all sessions, move history, weakness data, and settings? This cannot be undone.")) return;
+    await resetUserData(db);
+    activeSession = null;
+    setStatus("Training data reset");
+    await refreshProfile();
+  });
+}
+async function initializePractice() {
+  const puzzleLibrary = new MobileSqlitePuzzleLibrary(db);
+  await initEngine();
+  settings = await getSettings(db);
+  orchestrator = new TrainingOrchestrator({
+    db,
+    storage: mobileDb_exports,
+    puzzleLibrary,
+    engineFactory: () => engineClient,
+    skillLevel: Number(settings.engine_skill_level)
+  });
+  const display = el("engine-skill-display");
+  if (display) display.textContent = `Engine Skill: ${settings.engine_skill_level}`;
+  chess = new Chess();
+  renderBoard();
+  setStatus("Ready");
+  setMoveStatus('Tap "Pounce on Weakness" to begin.');
+}
 async function boot() {
   setStatus("Waking the cat\u2026");
   try {
@@ -7066,32 +7549,34 @@ async function boot() {
     setFatal("Could not open local storage. Sessions will not be saved.", err);
     return;
   }
-  let puzzleLibrary;
   try {
-    puzzleLibrary = new MobileSqlitePuzzleLibrary(db);
+    corpusStatus = await getCorpusStatus(db);
+    settings = await getSettings(db);
   } catch (err) {
-    setFatal("Could not open the puzzle library.", err);
+    setFatal("Could not inspect local app data.", err);
     return;
   }
-  try {
-    await initEngine();
-  } catch (err) {
-    setFatal("Stockfish failed to start.", err);
-    return;
+  if (corpusStatus.populated) {
+    try {
+      await initializePractice();
+    } catch (err) {
+      setFatal("Stockfish or the puzzle library failed to start.", err);
+      return;
+    }
+  } else {
+    chess = new Chess();
+    renderBoard();
+    el("corpus-first-run")?.classList.remove("hidden");
+    setStatus("Puzzle pack needed");
+    setMoveStatus("Download the one-time puzzle pack to begin.");
   }
-  orchestrator = new TrainingOrchestrator({
-    db,
-    storage: mobileDb_exports,
-    puzzleLibrary,
-    engineFactory: () => engineClient
-  });
-  chess = new Chess();
-  renderBoard();
-  setStatus("Ready");
-  setMoveStatus('Tap "Pounce on Weakness" to begin.');
   el("btn-start-target")?.addEventListener("click", startTargetedSession);
   el("btn-next-queued")?.addEventListener("click", startNextQueued);
   el("btn-complete")?.addEventListener("click", completeSession);
+  el("btn-download-corpus")?.addEventListener("click", () => importCorpus().catch(() => {
+  }));
+  el("nav-practice")?.addEventListener("click", () => showPage("practice"));
+  el("nav-profile")?.addEventListener("click", () => showPage("profile"));
   el("btn-flip")?.addEventListener("click", () => {
     boardFlipped = !boardFlipped;
     renderBoard();
@@ -7108,6 +7593,7 @@ async function boot() {
     el("tab-preview")?.classList.add("active");
     el("tab-moves")?.classList.remove("active");
   });
+  await refreshProfile();
 }
 document.addEventListener("DOMContentLoaded", boot);
 /*! Bundled license information:

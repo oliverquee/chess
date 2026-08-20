@@ -18,9 +18,12 @@
 
 import { Chess } from 'chess.js';
 import { TrainingOrchestrator } from '../core/orchestrator.js';
+import { CORPUS_MANIFEST } from '../data/corpusManifest.js';
 import { configureStockfish, StockfishWorkerClient } from '../engine/stockfishWorker.js';
 import * as mobileStorage from '../storage/mobileDb.js';
 import { MobileSqlitePuzzleLibrary } from '../storage/mobilePuzzleDb.js';
+import { downloadAndImportCorpus, getCorpusStatus } from '../storage/corpusBootstrap.js';
+import { engineDifficultyLabel, renderProfile } from './profile.js';
 
 const PIECES = {
   p: '♟', r: '♜', n: '♞', b: '♝', q: '♛', k: '♚',
@@ -59,6 +62,8 @@ let selectedSquare = null;
 let boardFlipped = true;
 let isEngineThinking = false;
 let engineTimeoutHandle = null;
+let settings = null;
+let corpusStatus = { populated: false, puzzleCount: 0, version: null };
 
 /* ---------------------------------------------------------------- *
  * Status helpers
@@ -380,6 +385,117 @@ async function completeSession() {
 }
 
 /* ---------------------------------------------------------------- *
+ * M9 corpus bootstrap, profile, settings, and primary navigation
+ * ---------------------------------------------------------------- */
+function showPage(page) {
+  const profile = page === 'profile';
+  el('practice-page')?.classList.toggle('hidden', profile);
+  el('profile-page')?.classList.toggle('hidden', !profile);
+  el('nav-practice')?.classList.toggle('active', !profile);
+  el('nav-profile')?.classList.toggle('active', profile);
+  if (profile) void refreshProfile();
+}
+
+function setCorpusProgress({ phase, percent }) {
+  const progress = el('corpus-progress');
+  const label = el('corpus-progress-label');
+  progress?.classList.remove('hidden');
+  if (progress && Number.isFinite(percent)) progress.value = percent;
+  if (label) {
+    const action = phase === 'import' ? 'Importing puzzles' : phase === 'verify' ? 'Verifying download' : 'Downloading puzzle pack';
+    label.textContent = Number.isFinite(percent) ? `${action}… ${percent}%` : `${action}…`;
+  }
+}
+
+async function importCorpus({ force = false } = {}) {
+  const button = el('btn-download-corpus');
+  if (!CORPUS_MANIFEST.url || !CORPUS_MANIFEST.sha256) {
+    throw new Error('The M9 corpus release asset has not been published yet.');
+  }
+  if (button) button.disabled = true;
+  try {
+    corpusStatus = await downloadAndImportCorpus({
+      db,
+      manifest: CORPUS_MANIFEST,
+      force,
+      onProgress: setCorpusProgress,
+    });
+    el('corpus-first-run')?.classList.add('hidden');
+    if (el('corpus-progress-label')) el('corpus-progress-label').textContent = `${corpusStatus.puzzleCount.toLocaleString()} puzzles ready.`;
+    if (!orchestrator) await initializePractice();
+    await refreshProfile();
+    setStatus('Ready');
+  } catch (error) {
+    console.error('Corpus import failed', error);
+    if (el('corpus-progress-label')) el('corpus-progress-label').textContent = `${error.message} Check your connection and try again.`;
+    throw error;
+  } finally {
+    if (button) button.disabled = false;
+  }
+}
+
+async function refreshProfile() {
+  if (!db) return;
+  settings = await mobileStorage.getSettings(db);
+  const stats = await mobileStorage.getProfileStats(db);
+  corpusStatus = await getCorpusStatus(db);
+  let focus = null;
+  if (orchestrator && corpusStatus.populated) {
+    try { focus = await orchestrator.getNextFocus(); } catch (error) { console.warn('Could not resolve profile focus', error); }
+  }
+  const container = el('profile-page');
+  renderProfile({ container, stats, settings, corpusStatus, focus });
+
+  const range = container.querySelector('[name="engine_skill_level"]');
+  range?.addEventListener('input', () => {
+    const output = el('engine-level-output');
+    const label = el('engine-difficulty-label');
+    if (output) output.textContent = range.value;
+    if (label) label.textContent = engineDifficultyLabel(range.value);
+  });
+  el('settings-form')?.addEventListener('submit', async (event) => {
+    event.preventDefault();
+    const form = new FormData(event.currentTarget);
+    for (const key of ['display_name', 'cat_avatar', 'chesscom_username', 'engine_skill_level', 'theme']) {
+      await mobileStorage.setSetting(db, key, form.get(key));
+    }
+    settings = await mobileStorage.getSettings(db);
+    orchestrator?.setSkillLevel(Number(settings.engine_skill_level));
+    const display = el('engine-skill-display');
+    if (display) display.textContent = `Engine Skill: ${settings.engine_skill_level}`;
+    setStatus('Settings saved');
+    await refreshProfile();
+  });
+  el('btn-corpus-update')?.addEventListener('click', () => importCorpus({ force: true }).catch(() => {}));
+  el('btn-reset-data')?.addEventListener('click', async () => {
+    if (!window.confirm('Delete all sessions, move history, weakness data, and settings? This cannot be undone.')) return;
+    await mobileStorage.resetUserData(db);
+    activeSession = null;
+    setStatus('Training data reset');
+    await refreshProfile();
+  });
+}
+
+async function initializePractice() {
+  const puzzleLibrary = new MobileSqlitePuzzleLibrary(db);
+  await initEngine();
+  settings = await mobileStorage.getSettings(db);
+  orchestrator = new TrainingOrchestrator({
+    db,
+    storage: mobileStorage,
+    puzzleLibrary,
+    engineFactory: () => engineClient,
+    skillLevel: Number(settings.engine_skill_level),
+  });
+  const display = el('engine-skill-display');
+  if (display) display.textContent = `Engine Skill: ${settings.engine_skill_level}`;
+  chess = new Chess();
+  renderBoard();
+  setStatus('Ready');
+  setMoveStatus('Tap "Pounce on Weakness" to begin.');
+}
+
+/* ---------------------------------------------------------------- *
  * Boot
  * ---------------------------------------------------------------- */
 async function boot() {
@@ -392,36 +508,35 @@ async function boot() {
     return;
   }
 
-  let puzzleLibrary;
   try {
-    puzzleLibrary = new MobileSqlitePuzzleLibrary(db);
+    corpusStatus = await getCorpusStatus(db);
+    settings = await mobileStorage.getSettings(db);
   } catch (err) {
-    setFatal('Could not open the puzzle library.', err);
+    setFatal('Could not inspect local app data.', err);
     return;
   }
 
-  try {
-    await initEngine();
-  } catch (err) {
-    setFatal('Stockfish failed to start.', err);
-    return;
+  if (corpusStatus.populated) {
+    try {
+      await initializePractice();
+    } catch (err) {
+      setFatal('Stockfish or the puzzle library failed to start.', err);
+      return;
+    }
+  } else {
+    chess = new Chess();
+    renderBoard();
+    el('corpus-first-run')?.classList.remove('hidden');
+    setStatus('Puzzle pack needed');
+    setMoveStatus('Download the one-time puzzle pack to begin.');
   }
-
-  orchestrator = new TrainingOrchestrator({
-    db,
-    storage: mobileStorage,
-    puzzleLibrary,
-    engineFactory: () => engineClient,
-  });
-
-  chess = new Chess();
-  renderBoard();
-  setStatus('Ready');
-  setMoveStatus('Tap "Pounce on Weakness" to begin.');
 
   el('btn-start-target')?.addEventListener('click', startTargetedSession);
   el('btn-next-queued')?.addEventListener('click', startNextQueued);
   el('btn-complete')?.addEventListener('click', completeSession);
+  el('btn-download-corpus')?.addEventListener('click', () => importCorpus().catch(() => {}));
+  el('nav-practice')?.addEventListener('click', () => showPage('practice'));
+  el('nav-profile')?.addEventListener('click', () => showPage('profile'));
   el('btn-flip')?.addEventListener('click', () => {
     boardFlipped = !boardFlipped;
     renderBoard();
@@ -439,8 +554,8 @@ async function boot() {
     el('tab-preview')?.classList.add('active');
     el('tab-moves')?.classList.remove('active');
   });
+
+  await refreshProfile();
 }
 
 document.addEventListener('DOMContentLoaded', boot);
-
-
