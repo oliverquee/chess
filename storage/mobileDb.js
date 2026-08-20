@@ -91,6 +91,11 @@ CREATE TABLE IF NOT EXISTS weakness_tags (
   classification_id INTEGER NULL REFERENCES move_classifications(id)
 );
 
+CREATE TABLE IF NOT EXISTS settings (
+  key TEXT PRIMARY KEY,
+  value TEXT NOT NULL
+);
+
 CREATE INDEX IF NOT EXISTS idx_games_seeded_weakness ON games(seeded_weakness);
 CREATE INDEX IF NOT EXISTS idx_moves_game_id ON moves(game_id);
 CREATE INDEX IF NOT EXISTS idx_weakness_tags_category ON weakness_tags(category);
@@ -116,6 +121,14 @@ const WEAKNESS_CATEGORIES = new Set([
 ]);
 const SEVERITIES = new Set(['low', 'medium', 'high']);
 const ANALYSIS_BACKENDS = new Set(['claude', 'ollama']);
+const SETTING_DEFAULTS = Object.freeze({
+  display_name: '',
+  cat_avatar: 'orange-tabby',
+  chesscom_username: 'lastautumnleaf1',
+  engine_skill_level: '10',
+  theme: 'cat',
+});
+const SETTING_KEYS = new Set(Object.keys(SETTING_DEFAULTS));
 
 function assertDb(db) {
   if (!db || typeof db.execute !== 'function' || typeof db.run !== 'function' || typeof db.query !== 'function') {
@@ -697,4 +710,87 @@ export async function getWeaknessTally(db, { sinceGameId } = {}) {
 
   const res = await db.query(sql, params);
   return (res.values || []).map((row) => ({ category: row.category, count: Number(row.count) }));
+}
+
+export async function getProfileStats(db, { recentLimit = 10 } = {}) {
+  assertDb(db);
+  if (!Number.isInteger(recentLimit) || recentLimit < 1 || recentLimit > 50) {
+    throw new RangeError('recentLimit must be an integer from 1 to 50.');
+  }
+
+  const totalsRes = await db.query(`
+    SELECT
+      COUNT(*) AS total_sessions,
+      COALESCE(SUM(move_count), 0) AS total_moves
+    FROM (
+      SELECT g.id, COUNT(m.id) AS move_count
+      FROM games g
+      LEFT JOIN moves m ON m.game_id = g.id
+      WHERE g.status IN ('completed', 'analyzed')
+      GROUP BY g.id
+    )
+  `);
+  const totals = totalsRes.values?.[0] ?? { total_sessions: 0, total_moves: 0 };
+
+  const recentRes = await db.query(`
+    SELECT g.id, g.date, g.seeded_weakness, g.result, g.status, COUNT(m.id) AS move_count
+    FROM games g
+    LEFT JOIN moves m ON m.game_id = g.id
+    WHERE g.status IN ('completed', 'analyzed')
+    GROUP BY g.id
+    ORDER BY COALESCE(g.date, '') DESC, g.rowid DESC
+    LIMIT ?
+  `, [recentLimit]);
+
+  return {
+    totalSessions: Number(totals.total_sessions ?? 0),
+    totalMoves: Number(totals.total_moves ?? 0),
+    weaknessTally: await getWeaknessTally(db),
+    recentSessions: (recentRes.values || []).map((row) => ({
+      ...row,
+      move_count: Number(row.move_count ?? 0),
+    })),
+  };
+}
+
+export async function getSettings(db) {
+  assertDb(db);
+  const res = await db.query('SELECT key, value FROM settings');
+  const settings = { ...SETTING_DEFAULTS };
+  for (const row of res.values || []) {
+    if (SETTING_KEYS.has(row.key)) settings[row.key] = String(row.value);
+  }
+  return settings;
+}
+
+export async function setSetting(db, key, value) {
+  assertDb(db);
+  if (!SETTING_KEYS.has(key)) throw new RangeError(`Unknown setting: ${key}`);
+  const normalized = String(value ?? '').trim();
+  if (key === 'engine_skill_level') {
+    const level = Number(normalized);
+    if (!Number.isInteger(level) || level < 0 || level > 20) {
+      throw new RangeError('engine_skill_level must be an integer from 0 to 20.');
+    }
+  }
+  if (key === 'theme' && normalized !== 'cat') throw new RangeError('Only the cat theme is currently available.');
+  if (key === 'cat_avatar' && !['orange-tabby', 'tuxedo', 'calico', 'black-cat'].includes(normalized)) {
+    throw new RangeError('Unknown cat avatar.');
+  }
+  await db.run(`
+    INSERT INTO settings (key, value) VALUES (?, ?)
+    ON CONFLICT(key) DO UPDATE SET value = excluded.value
+  `, [key, normalized]);
+  return normalized;
+}
+
+export async function resetUserData(db) {
+  assertDb(db);
+  return withTransaction(db, async () => {
+    await db.execute('DELETE FROM weakness_tags;');
+    await db.execute('DELETE FROM move_classifications;');
+    await db.execute('DELETE FROM moves;');
+    await db.execute('DELETE FROM games;');
+    await db.execute('DELETE FROM settings;');
+  });
 }
