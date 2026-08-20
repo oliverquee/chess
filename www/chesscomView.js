@@ -8,11 +8,11 @@ export const THEME_STYLE_ID = 'cat-analyst-theme-overlay';
 export function buildThemeInjectionScript(css) {
   if (typeof css !== 'string' || !css.trim()) throw new TypeError('Chess.com theme CSS is required.');
   return `(() => {
-    if (document.head && !document.getElementById(${JSON.stringify(THEME_STYLE_ID)})) {
-      const style = document.createElement('style');
+    if (document.head) {
+      const style = document.getElementById(${JSON.stringify(THEME_STYLE_ID)}) || document.createElement('style');
       style.id = ${JSON.stringify(THEME_STYLE_ID)};
       style.textContent = ${JSON.stringify(css)};
-      document.head.appendChild(style);
+      if (!style.isConnected) document.head.appendChild(style);
     }
   })();`;
 }
@@ -26,13 +26,13 @@ export function createChessComView({ inAppBrowser, themeCss, browserOptions = {}
     throw new TypeError('A controllable embedded in-app browser is required.');
   }
 
-  const injectionScript = buildThemeInjectionScript(themeCss);
+  let currentThemeCss = themeCss;
   let browserId = null;
   let listenersReady = false;
 
   async function inject(event = {}) {
     if (!browserId || (event.id && event.id !== browserId)) return;
-    await inAppBrowser.executeScript({ id: browserId, code: injectionScript });
+    await inAppBrowser.executeScript({ id: browserId, code: buildThemeInjectionScript(currentThemeCss) });
   }
 
   async function ensureListeners() {
@@ -47,7 +47,11 @@ export function createChessComView({ inAppBrowser, themeCss, browserOptions = {}
 
   return {
     get browserId() { return browserId; },
-    injectionScript,
+    get injectionScript() { return buildThemeInjectionScript(currentThemeCss); },
+    async setThemeCss(css) {
+      currentThemeCss = css;
+      if (browserId) await inject({ id: browserId });
+    },
     async open() {
       await ensureListeners();
       if (browserId && inAppBrowser.show) {
@@ -59,7 +63,7 @@ export function createChessComView({ inAppBrowser, themeCss, browserOptions = {}
         url: CHESSCOM_URL,
         persistWebViewData: true,
         isPresentAfterPageLoad: true,
-        preShowScript: injectionScript,
+        preShowScript: buildThemeInjectionScript(currentThemeCss),
         preShowScriptInjectionTime: 'pageLoad',
         ...browserOptions,
       });

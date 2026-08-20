@@ -27,6 +27,7 @@ import { downloadAndImportCorpus, getCorpusStatus } from '../storage/corpusBoots
 import { engineDifficultyLabel, renderProfile } from './profile.js';
 import chessComThemeCss from './chesscom-theme.css';
 import { createChessComView } from './chesscomView.js';
+import { applyAppTheme, chessComCssForTheme, getTheme } from './themes.js';
 
 const PIECES = {
   p: '♟', r: '♜', n: '♞', b: '♝', q: '♛', k: '♚',
@@ -85,7 +86,13 @@ const chessComView = createChessComView({
  * Status helpers
  * ---------------------------------------------------------------- */
 function setStatus(text) {
-  if (systemStatusEl) systemStatusEl.textContent = `${text} • Cat Analyst`;
+  if (systemStatusEl) systemStatusEl.textContent = `${text} • ${getTheme(settings?.theme).label} Theme`;
+}
+
+async function activateTheme(themeId) {
+  const theme = applyAppTheme(themeId);
+  await chessComView.setThemeCss(chessComCssForTheme(chessComThemeCss, themeId));
+  return theme;
 }
 function setMoveStatus(text) {
   if (moveStatusEl) moveStatusEl.textContent = text;
@@ -465,6 +472,7 @@ async function importCorpus({ force = false } = {}) {
 async function refreshProfile() {
   if (!db) return;
   settings = await mobileStorage.getSettings(db);
+  await activateTheme(settings.theme);
   const stats = await mobileStorage.getProfileStats(db);
   corpusStatus = await getCorpusStatus(db);
   let focus = null;
@@ -488,6 +496,7 @@ async function refreshProfile() {
       await mobileStorage.setSetting(db, key, form.get(key));
     }
     settings = await mobileStorage.getSettings(db);
+    await activateTheme(settings.theme);
     orchestrator?.setSkillLevel(Number(settings.engine_skill_level));
     const display = el('engine-skill-display');
     if (display) display.textContent = `Engine Skill: ${settings.engine_skill_level}`;

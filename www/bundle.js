@@ -6941,7 +6941,9 @@ async function setSetting(db2, key, value) {
       throw new RangeError("engine_skill_level must be an integer from 0 to 20.");
     }
   }
-  if (key === "theme" && normalized !== "cat") throw new RangeError("Only the cat theme is currently available.");
+  if (key === "theme" && !["cat", "panda", "black-cat", "bunny", "fox"].includes(normalized)) {
+    throw new RangeError("Unknown animal theme.");
+  }
   if (key === "cat_avatar" && !["orange-tabby", "tuxedo", "calico", "black-cat"].includes(normalized)) {
     throw new RangeError("Unknown cat avatar.");
   }
@@ -7260,6 +7262,53 @@ async function downloadAndImportCorpus({
   return { ...await getCorpusStatus(db2), skipped: false };
 }
 
+// www/themes.js
+var THEMES = Object.freeze({
+  cat: Object.freeze({ label: "Orange cat", emoji: "\u{1F431}", subtitle: "Orange Tabby Edition \u{1F43E}", engine: "Orange Cat" }),
+  panda: Object.freeze({ label: "Panda", emoji: "\u{1F43C}", subtitle: "Bamboo Panda Edition \u{1F38B}", engine: "Panda" }),
+  "black-cat": Object.freeze({ label: "Black cat", emoji: "\u{1F408}\u200D\u2B1B", subtitle: "Midnight Cat Edition \u{1F319}", engine: "Midnight Cat" }),
+  bunny: Object.freeze({ label: "Bunny", emoji: "\u{1F430}", subtitle: "Berry Bunny Edition \u{1F955}", engine: "Bunny" }),
+  fox: Object.freeze({ label: "Fox", emoji: "\u{1F98A}", subtitle: "Woodland Fox Edition \u{1F342}", engine: "Fox" })
+});
+function getTheme(themeId) {
+  return THEMES[themeId] ?? THEMES.cat;
+}
+function themeOptions(selectedTheme = "cat") {
+  return Object.entries(THEMES).map(
+    ([value, theme]) => `<option value="${value}"${value === selectedTheme ? " selected" : ""}>${theme.emoji} ${theme.label}</option>`
+  ).join("");
+}
+function applyAppTheme(themeId, root = document.documentElement) {
+  const id = THEMES[themeId] ? themeId : "cat";
+  const theme = THEMES[id];
+  root.dataset.theme = id;
+  document.querySelector(".brand-avatar")?.replaceChildren(theme.emoji);
+  const subtitle = document.querySelector(".brand-sub");
+  if (subtitle) subtitle.textContent = theme.subtitle;
+  const firstRun = document.querySelector(".first-run-cat");
+  if (firstRun) firstRun.textContent = theme.emoji;
+  return theme;
+}
+var CHESSCOM_COLORS = Object.freeze({
+  cat: ["#E67E22", "#D35400", "#F7EFE2", "#C8854E", "#7A4526"],
+  panda: ["#2F855A", "#276749", "#F7FAF7", "#7BAE7F", "#202A24"],
+  "black-cat": ["#9F7AEA", "#6B46C1", "#E9E6F2", "#4B4658", "#17151D"],
+  bunny: ["#E96B9A", "#C44575", "#FFF4F7", "#DFA2B8", "#71495A"],
+  fox: ["#E76F31", "#B94718", "#FFF1DF", "#C76B3D", "#66321F"]
+});
+function chessComCssForTheme(baseCss, themeId) {
+  const colors = CHESSCOM_COLORS[themeId] ?? CHESSCOM_COLORS.cat;
+  return `${baseCss}
+:root {
+    --chess-analyst-accent: ${colors[0]};
+    --chess-analyst-accent-dark: ${colors[1]};
+    --chess-analyst-board-light: ${colors[2]};
+    --chess-analyst-board-dark: ${colors[3]};
+    --chess-analyst-board-frame: ${colors[4]};
+    --chess-analyst-highlight: color-mix(in srgb, ${colors[0]} 48%, transparent);
+  }`;
+}
+
 // www/profile.js
 var LABELS = Object.freeze({
   tactical: "Tactical",
@@ -7315,9 +7364,10 @@ function renderProfile({ container, stats, settings: settings2, corpusStatus: co
   const level = Number(settings2.engine_skill_level ?? 10);
   const avatarOptions = AVATARS.map(([value, label]) => `<option value="${value}"${settings2.cat_avatar === value ? " selected" : ""}>${label}</option>`).join("");
   const enoughProgress = stats.totalSessions >= 3;
+  const activeTheme = getTheme(settings2.theme);
   container.innerHTML = `
     <section class="profile-hero">
-      <span class="profile-avatar">${settings2.cat_avatar === "black-cat" ? "\u{1F408}\u200D\u2B1B" : "\u{1F431}"}</span>
+      <span class="profile-avatar">${activeTheme.emoji}</span>
       <div><h2>${escapeHtml(settings2.display_name || "Your Cat Analyst Profile")}</h2><p>${stats.totalSessions ? `${stats.totalSessions} hunts completed` : "Your training story starts here."}</p></div>
     </section>
     <section class="profile-card" aria-labelledby="stats-heading">
@@ -7337,7 +7387,7 @@ function renderProfile({ container, stats, settings: settings2, corpusStatus: co
         <label>Cat avatar<select name="cat_avatar">${avatarOptions}</select></label>
         <label>chess.com username<input name="chesscom_username" maxlength="50" value="${escapeHtml(settings2.chesscom_username)}" autocomplete="off"></label>
         <label>Engine difficulty <span id="engine-difficulty-label">${engineDifficultyLabel(level)}</span><input name="engine_skill_level" type="range" min="0" max="20" step="1" value="${level}"><output id="engine-level-output">${level}</output></label>
-        <label>Theme<select name="theme"><option value="cat" selected>Orange cat</option></select></label>
+        <label>Animal theme<select name="theme">${themeOptions(settings2.theme)}</select></label>
         <button class="btn btn-primary" type="submit">Save settings</button>
       </form>
       <div class="corpus-status"><h3>Puzzle corpus</h3><p>${corpusStatus2.populated ? `Version ${escapeHtml(corpusStatus2.version ?? "unknown")} \u2022 ${corpusStatus2.puzzleCount.toLocaleString()} puzzles` : "Not downloaded yet"}</p><button id="btn-corpus-update" class="btn btn-secondary" type="button">${corpusStatus2.populated ? "Re-download corpus" : "Download corpus"}</button></div>
@@ -7354,11 +7404,11 @@ var THEME_STYLE_ID = "cat-analyst-theme-overlay";
 function buildThemeInjectionScript(css) {
   if (typeof css !== "string" || !css.trim()) throw new TypeError("Chess.com theme CSS is required.");
   return `(() => {
-    if (document.head && !document.getElementById(${JSON.stringify(THEME_STYLE_ID)})) {
-      const style = document.createElement('style');
+    if (document.head) {
+      const style = document.getElementById(${JSON.stringify(THEME_STYLE_ID)}) || document.createElement('style');
       style.id = ${JSON.stringify(THEME_STYLE_ID)};
       style.textContent = ${JSON.stringify(css)};
-      document.head.appendChild(style);
+      if (!style.isConnected) document.head.appendChild(style);
     }
   })();`;
 }
@@ -7366,12 +7416,12 @@ function createChessComView({ inAppBrowser, themeCss, browserOptions = {} }) {
   if (!inAppBrowser?.openWebView || !inAppBrowser?.executeScript || !inAppBrowser?.addListener) {
     throw new TypeError("A controllable embedded in-app browser is required.");
   }
-  const injectionScript = buildThemeInjectionScript(themeCss);
+  let currentThemeCss = themeCss;
   let browserId = null;
   let listenersReady = false;
   async function inject(event = {}) {
     if (!browserId || event.id && event.id !== browserId) return;
-    await inAppBrowser.executeScript({ id: browserId, code: injectionScript });
+    await inAppBrowser.executeScript({ id: browserId, code: buildThemeInjectionScript(currentThemeCss) });
   }
   async function ensureListeners() {
     if (listenersReady) return;
@@ -7390,7 +7440,13 @@ function createChessComView({ inAppBrowser, themeCss, browserOptions = {} }) {
     get browserId() {
       return browserId;
     },
-    injectionScript,
+    get injectionScript() {
+      return buildThemeInjectionScript(currentThemeCss);
+    },
+    async setThemeCss(css) {
+      currentThemeCss = css;
+      if (browserId) await inject({ id: browserId });
+    },
     async open() {
       await ensureListeners();
       if (browserId && inAppBrowser.show) {
@@ -7402,7 +7458,7 @@ function createChessComView({ inAppBrowser, themeCss, browserOptions = {} }) {
         url: CHESSCOM_URL,
         persistWebViewData: true,
         isPresentAfterPageLoad: true,
-        preShowScript: injectionScript,
+        preShowScript: buildThemeInjectionScript(currentThemeCss),
         preShowScriptInjectionTime: "pageLoad",
         ...browserOptions
       });
@@ -7466,7 +7522,12 @@ var chessComView = createChessComView({
   }
 });
 function setStatus(text) {
-  if (systemStatusEl) systemStatusEl.textContent = `${text} \u2022 Cat Analyst`;
+  if (systemStatusEl) systemStatusEl.textContent = `${text} \u2022 ${getTheme(settings?.theme).label} Theme`;
+}
+async function activateTheme(themeId) {
+  const theme = applyAppTheme(themeId);
+  await chessComView.setThemeCss(chessComCssForTheme(chesscom_theme_default, themeId));
+  return theme;
 }
 function setMoveStatus(text) {
   if (moveStatusEl) moveStatusEl.textContent = text;
@@ -7779,6 +7840,7 @@ async function importCorpus({ force = false } = {}) {
 async function refreshProfile() {
   if (!db) return;
   settings = await getSettings(db);
+  await activateTheme(settings.theme);
   const stats = await getProfileStats(db);
   corpusStatus = await getCorpusStatus(db);
   let focus = null;
@@ -7805,6 +7867,7 @@ async function refreshProfile() {
       await setSetting(db, key, form.get(key));
     }
     settings = await getSettings(db);
+    await activateTheme(settings.theme);
     orchestrator?.setSkillLevel(Number(settings.engine_skill_level));
     const display = el("engine-skill-display");
     if (display) display.textContent = `Engine Skill: ${settings.engine_skill_level}`;

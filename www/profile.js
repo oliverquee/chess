@@ -1,4 +1,5 @@
 import { WEAKNESS_CATEGORIES } from '../data/themeMapping.js';
+import { getTheme, themeOptions } from './themes.js';
 
 const LABELS = Object.freeze({
   tactical: 'Tactical',
@@ -66,9 +67,10 @@ export function renderProfile({ container, stats, settings, corpusStatus, focus 
   const level = Number(settings.engine_skill_level ?? 10);
   const avatarOptions = AVATARS.map(([value, label]) => `<option value="${value}"${settings.cat_avatar === value ? ' selected' : ''}>${label}</option>`).join('');
   const enoughProgress = stats.totalSessions >= 3;
+  const activeTheme = getTheme(settings.theme);
   container.innerHTML = `
     <section class="profile-hero">
-      <span class="profile-avatar">${settings.cat_avatar === 'black-cat' ? '🐈‍⬛' : '🐱'}</span>
+      <span class="profile-avatar">${activeTheme.emoji}</span>
       <div><h2>${escapeHtml(settings.display_name || 'Your Cat Analyst Profile')}</h2><p>${stats.totalSessions ? `${stats.totalSessions} hunts completed` : 'Your training story starts here.'}</p></div>
     </section>
     <section class="profile-card" aria-labelledby="stats-heading">
@@ -88,7 +90,7 @@ export function renderProfile({ container, stats, settings, corpusStatus, focus 
         <label>Cat avatar<select name="cat_avatar">${avatarOptions}</select></label>
         <label>chess.com username<input name="chesscom_username" maxlength="50" value="${escapeHtml(settings.chesscom_username)}" autocomplete="off"></label>
         <label>Engine difficulty <span id="engine-difficulty-label">${engineDifficultyLabel(level)}</span><input name="engine_skill_level" type="range" min="0" max="20" step="1" value="${level}"><output id="engine-level-output">${level}</output></label>
-        <label>Theme<select name="theme"><option value="cat" selected>Orange cat</option></select></label>
+        <label>Animal theme<select name="theme">${themeOptions(settings.theme)}</select></label>
         <button class="btn btn-primary" type="submit">Save settings</button>
       </form>
       <div class="corpus-status"><h3>Puzzle corpus</h3><p>${corpusStatus.populated ? `Version ${escapeHtml(corpusStatus.version ?? 'unknown')} • ${corpusStatus.puzzleCount.toLocaleString()} puzzles` : 'Not downloaded yet'}</p><button id="btn-corpus-update" class="btn btn-secondary" type="button">${corpusStatus.populated ? 'Re-download corpus' : 'Download corpus'}</button></div>

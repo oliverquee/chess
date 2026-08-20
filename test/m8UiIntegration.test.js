@@ -125,6 +125,15 @@ test('M8: Orange Cat Theme tokens and stylesheet integrity', () => {
   assert.ok(htmlContent.includes('Cat Analyst'), 'Cat Analyst branding must be in index.html');
 });
 
+test('animal theme packs preserve shared board tokens', () => {
+  const cssContent = readFileSync(resolve('www/index.css'), 'utf8');
+  for (const theme of ['panda', 'black-cat', 'bunny', 'fox']) {
+    assert.ok(cssContent.includes(`:root[data-theme="${theme}"]`), `Missing ${theme} theme pack`);
+  }
+  assert.equal((cssContent.match(/--board-light:/g) ?? []).length, 5);
+  assert.equal((cssContent.match(/--board-dark:/g) ?? []).length, 5);
+});
+
 test('M8: Chess.com mobile theme overlay CSS integrity', () => {
   const themeCss = readFileSync(resolve('www/chesscom-theme.css'), 'utf8');
   
@@ -135,4 +144,3 @@ test('M8: Chess.com mobile theme overlay CSS integrity', () => {
   assert.ok(themeCss.includes('--chess-analyst-accent'), 'Must define accent token');
   assert.ok(!themeCss.includes('eval'), 'Must remain theme-only without engine injection');
 });
-

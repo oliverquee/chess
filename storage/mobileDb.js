@@ -786,7 +786,9 @@ export async function setSetting(db, key, value) {
       throw new RangeError('engine_skill_level must be an integer from 0 to 20.');
     }
   }
-  if (key === 'theme' && normalized !== 'cat') throw new RangeError('Only the cat theme is currently available.');
+  if (key === 'theme' && !['cat', 'panda', 'black-cat', 'bunny', 'fox'].includes(normalized)) {
+    throw new RangeError('Unknown animal theme.');
+  }
   if (key === 'cat_avatar' && !['orange-tabby', 'tuxedo', 'calico', 'black-cat'].includes(normalized)) {
     throw new RangeError('Unknown cat avatar.');
   }

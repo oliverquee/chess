@@ -81,6 +81,22 @@ test('M9 settings survive a simulated app connection restart', async () => {
   } finally { sync.close(); }
 });
 
+test('animal themes render and persist as selectable profile settings', async () => {
+  const { sync, connection } = createProfileDb();
+  try {
+    const db = connection();
+    for (const theme of ['cat', 'panda', 'black-cat', 'bunny', 'fox']) {
+      await setSetting(db, 'theme', theme);
+      const settings = await getSettings(connection());
+      assert.equal(settings.theme, theme);
+      const container = render(await getProfileStats(db), settings);
+      assert.equal(container.querySelector('[name="theme"]').value, theme);
+      assert.equal(container.querySelectorAll('[name="theme"] option').length, 5);
+    }
+    await assert.rejects(() => setSetting(db, 'theme', 'unknown-animal'), /Unknown animal theme/);
+  } finally { sync.close(); }
+});
+
 test('M9 engine difficulty reaches newly created PracticeSession instances', async () => {
   const short = { PuzzleId: 's', FEN, Moves: 'e2e4 e7e5 g1f3 b8c6', themes: ['fork'], stepCount: 4 };
   const long = { PuzzleId: 'l', FEN, Moves: 'e2e4 e7e5 g1f3 b8c6 f1b5 a7a6 b5a4 g8f6', themes: ['fork'], stepCount: 8 };
