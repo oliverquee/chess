@@ -30,6 +30,42 @@ test('practical_time is surfaced as advice and skipped for puzzle seeding', () =
   assert.match(result.skipped[0].advice, /Slow down/i);
 });
 
+test('an empty ranking (brand-new install, zero history) bootstraps a default category instead of deadlocking', () => {
+  const calls = [];
+  const result = selectSeedableTarget([], {
+    getPuzzles(category, bucket) {
+      calls.push([category, bucket]);
+      return [{ PuzzleId: 'short' }, { PuzzleId: 'long' }];
+    },
+  });
+
+  assert.deepEqual(calls, [['tactical', 'start-slow']]);
+  assert.equal(result.weaknessCategory, 'tactical');
+  assert.equal(result.skipped.length, 0, 'bootstrap is not a skip, it is a default');
+});
+
+test('an empty ranking respects a custom bootstrapCategory option', () => {
+  const result = selectSeedableTarget([], {
+    bootstrapCategory: 'endgame_technique',
+    getPuzzles(category) {
+      assert.equal(category, 'endgame_technique');
+      return [{ PuzzleId: 'a' }, { PuzzleId: 'b' }];
+    },
+  });
+  assert.equal(result.weaknessCategory, 'endgame_technique');
+});
+
+test('a non-empty ranking is never overridden by the bootstrap, even if every entry is practical_time', () => {
+  const result = selectSeedableTarget(['practical_time'], {
+    getPuzzles() {
+      throw new Error('must not be called');
+    },
+  });
+  // Real (if unseedable) signal must win over the empty-history bootstrap.
+  assert.equal(result.weaknessCategory, null);
+  assert.equal(result.skipped[0].category, 'practical_time');
+});
+
 test('an all-practical-time ranking returns advice without crashing or inventing puzzles', () => {
   const result = selectSeedableTarget(['practical_time'], {
     getPuzzles() {
@@ -66,3 +102,5 @@ test('practical-time fallback selects exactly two tactical seeds from real SQLit
     db.close();
   }
 });
+
+

@@ -7,6 +7,7 @@ import { getMotifReadyFen } from '../engine/practiceSession.js';
 import { TrainingOrchestrator } from '../core/orchestrator.js';
 import { initDb, getGameHistory, getGameStatus, saveWeaknessTags } from '../storage/db.js';
 import { initPuzzleDb, SqlitePuzzleLibrary } from '../data/puzzleDb.js';
+import * as dbStorage from '../storage/db.js';
 
 const RAW_FEN = 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1';
 
@@ -41,6 +42,7 @@ test('M8: practice session start-slow workflow runs end-to-end and persists to s
 
   const orchestrator = new TrainingOrchestrator({
     db,
+    storage: dbStorage,
     puzzleLibrary: new SqlitePuzzleLibrary(puzzleDb),
     engineFactory: () => createDeterministicEngine(),
     idFactory: () => `session-${++sessionIndex}`,
@@ -131,3 +133,5 @@ test('M8: Chess.com mobile theme overlay CSS integrity', () => {
   assert.ok(themeCss.includes('--chess-analyst-accent'), 'Must define accent token');
   assert.ok(!themeCss.includes('eval'), 'Must remain theme-only without engine injection');
 });
+
+

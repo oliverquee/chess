@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { initPuzzleDb, SqlitePuzzleLibrary } from '../data/puzzleDb.js';
 import { TrainingOrchestrator } from '../core/orchestrator.js';
+import * as dbStorage from '../storage/db.js';
 import {
   getGameHistory,
   getGameStatus,
@@ -41,6 +42,7 @@ test('M2 runs weakness → queue → practice → persist → analyzed → next-
   let id = 0;
   const orchestrator = new TrainingOrchestrator({
     db,
+    storage: dbStorage,
     puzzleLibrary: new SqlitePuzzleLibrary(puzzleDb),
     engineFactory: deterministicEngine,
     idFactory: () => `session-${++id}`,
@@ -93,6 +95,7 @@ test('target queue creation is atomic when session IDs collide', async () => {
   const puzzleDb = seedPuzzleDb();
   const orchestrator = new TrainingOrchestrator({
     db,
+    storage: dbStorage,
     puzzleLibrary: new SqlitePuzzleLibrary(puzzleDb),
     engineFactory: deterministicEngine,
     idFactory: () => 'duplicate-session',
@@ -117,6 +120,7 @@ test('engine construction failure does not falsely mark a queued game in progres
   let id = 0;
   const orchestrator = new TrainingOrchestrator({
     db,
+    storage: dbStorage,
     puzzleLibrary: new SqlitePuzzleLibrary(puzzleDb),
     engineFactory: () => { throw new Error('engine unavailable'); },
     idFactory: () => `engine-failure-${++id}`,
@@ -134,3 +138,5 @@ test('engine construction failure does not falsely mark a queued game in progres
     db.close();
   }
 });
+
+

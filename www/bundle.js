@@ -1,0 +1,7146 @@
+var __defProp = Object.defineProperty;
+var __getOwnPropNames = Object.getOwnPropertyNames;
+var __esm = (fn, res) => function __init() {
+  return fn && (res = (0, fn[__getOwnPropNames(fn)[0]])(fn = 0)), res;
+};
+var __export = (target, all) => {
+  for (var name in all)
+    __defProp(target, name, { get: all[name], enumerable: true });
+};
+
+// node_modules/@capacitor/core/dist/index.js
+var ExceptionCode, CapacitorException, getPlatformId, createCapacitor, initCapacitorGlobal, Capacitor, registerPlugin, WebPlugin, encode, decode, CapacitorCookiesPluginWeb, CapacitorCookies, readBlobAsBase64, normalizeHttpHeaders, buildUrlParams, buildRequestInit, CapacitorHttpPluginWeb, CapacitorHttp, SystemBarsStyle, SystemBarType, SystemBarsPluginWeb, SystemBars;
+var init_dist = __esm({
+  "node_modules/@capacitor/core/dist/index.js"() {
+    (function(ExceptionCode2) {
+      ExceptionCode2["Unimplemented"] = "UNIMPLEMENTED";
+      ExceptionCode2["Unavailable"] = "UNAVAILABLE";
+    })(ExceptionCode || (ExceptionCode = {}));
+    CapacitorException = class extends Error {
+      constructor(message, code, data) {
+        super(message);
+        this.message = message;
+        this.code = code;
+        this.data = data;
+      }
+    };
+    getPlatformId = (win) => {
+      var _a, _b;
+      if (win === null || win === void 0 ? void 0 : win.androidBridge) {
+        return "android";
+      } else if ((_b = (_a = win === null || win === void 0 ? void 0 : win.webkit) === null || _a === void 0 ? void 0 : _a.messageHandlers) === null || _b === void 0 ? void 0 : _b.bridge) {
+        return "ios";
+      } else {
+        return "web";
+      }
+    };
+    createCapacitor = (win) => {
+      const capCustomPlatform = win.CapacitorCustomPlatform || null;
+      const cap = win.Capacitor || {};
+      const Plugins = cap.Plugins = cap.Plugins || {};
+      const getPlatform = () => {
+        return capCustomPlatform !== null ? capCustomPlatform.name : getPlatformId(win);
+      };
+      const isNativePlatform = () => getPlatform() !== "web";
+      const isPluginAvailable = (pluginName) => {
+        const plugin = registeredPlugins.get(pluginName);
+        if (plugin === null || plugin === void 0 ? void 0 : plugin.platforms.has(getPlatform())) {
+          return true;
+        }
+        if (getPluginHeader(pluginName)) {
+          return true;
+        }
+        return false;
+      };
+      const getPluginHeader = (pluginName) => {
+        var _a;
+        return (_a = cap.PluginHeaders) === null || _a === void 0 ? void 0 : _a.find((h) => h.name === pluginName);
+      };
+      const handleError = (err) => win.console.error(err);
+      const registeredPlugins = /* @__PURE__ */ new Map();
+      const registerPlugin2 = (pluginName, jsImplementations = {}) => {
+        const registeredPlugin = registeredPlugins.get(pluginName);
+        if (registeredPlugin) {
+          console.warn(`Capacitor plugin "${pluginName}" already registered. Cannot register plugins twice.`);
+          return registeredPlugin.proxy;
+        }
+        const platform = getPlatform();
+        const pluginHeader = getPluginHeader(pluginName);
+        let jsImplementation;
+        const loadPluginImplementation = async () => {
+          if (!jsImplementation && platform in jsImplementations) {
+            jsImplementation = typeof jsImplementations[platform] === "function" ? jsImplementation = await jsImplementations[platform]() : jsImplementation = jsImplementations[platform];
+          } else if (capCustomPlatform !== null && !jsImplementation && "web" in jsImplementations) {
+            jsImplementation = typeof jsImplementations["web"] === "function" ? jsImplementation = await jsImplementations["web"]() : jsImplementation = jsImplementations["web"];
+          }
+          return jsImplementation;
+        };
+        const createPluginMethod = (impl, prop) => {
+          var _a, _b;
+          if (pluginHeader) {
+            const methodHeader = pluginHeader === null || pluginHeader === void 0 ? void 0 : pluginHeader.methods.find((m) => prop === m.name);
+            if (methodHeader) {
+              if (methodHeader.rtype === "promise") {
+                return (options) => cap.nativePromise(pluginName, prop.toString(), options);
+              } else {
+                return (options, callback) => cap.nativeCallback(pluginName, prop.toString(), options, callback);
+              }
+            } else if (impl) {
+              return (_a = impl[prop]) === null || _a === void 0 ? void 0 : _a.bind(impl);
+            }
+          } else if (impl) {
+            return (_b = impl[prop]) === null || _b === void 0 ? void 0 : _b.bind(impl);
+          } else {
+            throw new CapacitorException(`"${pluginName}" plugin is not implemented on ${platform}`, ExceptionCode.Unimplemented);
+          }
+        };
+        const createPluginMethodWrapper = (prop) => {
+          let remove;
+          const wrapper = (...args) => {
+            const p = loadPluginImplementation().then((impl) => {
+              const fn = createPluginMethod(impl, prop);
+              if (fn) {
+                const p2 = fn(...args);
+                remove = p2 === null || p2 === void 0 ? void 0 : p2.remove;
+                return p2;
+              } else {
+                throw new CapacitorException(`"${pluginName}.${prop}()" is not implemented on ${platform}`, ExceptionCode.Unimplemented);
+              }
+            });
+            if (prop === "addListener") {
+              p.remove = async () => remove();
+            }
+            return p;
+          };
+          wrapper.toString = () => `${prop.toString()}() { [capacitor code] }`;
+          Object.defineProperty(wrapper, "name", {
+            value: prop,
+            writable: false,
+            configurable: false
+          });
+          return wrapper;
+        };
+        const addListener = createPluginMethodWrapper("addListener");
+        const removeListener = createPluginMethodWrapper("removeListener");
+        const addListenerNative = (eventName, callback) => {
+          const call = addListener({ eventName }, callback);
+          const remove = async () => {
+            const callbackId = await call;
+            removeListener({
+              eventName,
+              callbackId
+            }, callback);
+          };
+          const p = new Promise((resolve) => call.then(() => resolve({ remove })));
+          p.remove = async () => {
+            console.warn(`Using addListener() without 'await' is deprecated.`);
+            await remove();
+          };
+          return p;
+        };
+        const proxy = new Proxy({}, {
+          get(_, prop) {
+            switch (prop) {
+              // https://github.com/facebook/react/issues/20030
+              case "$$typeof":
+                return void 0;
+              case "toJSON":
+                return () => ({});
+              case "addListener":
+                return pluginHeader ? addListenerNative : addListener;
+              case "removeListener":
+                return removeListener;
+              default:
+                return createPluginMethodWrapper(prop);
+            }
+          }
+        });
+        Plugins[pluginName] = proxy;
+        registeredPlugins.set(pluginName, {
+          name: pluginName,
+          proxy,
+          platforms: /* @__PURE__ */ new Set([...Object.keys(jsImplementations), ...pluginHeader ? [platform] : []])
+        });
+        return proxy;
+      };
+      if (!cap.convertFileSrc) {
+        cap.convertFileSrc = (filePath) => filePath;
+      }
+      cap.getPlatform = getPlatform;
+      cap.handleError = handleError;
+      cap.isNativePlatform = isNativePlatform;
+      cap.isPluginAvailable = isPluginAvailable;
+      cap.registerPlugin = registerPlugin2;
+      cap.Exception = CapacitorException;
+      cap.DEBUG = !!cap.DEBUG;
+      cap.isLoggingEnabled = !!cap.isLoggingEnabled;
+      return cap;
+    };
+    initCapacitorGlobal = (win) => win.Capacitor = createCapacitor(win);
+    Capacitor = /* @__PURE__ */ initCapacitorGlobal(typeof globalThis !== "undefined" ? globalThis : typeof self !== "undefined" ? self : typeof window !== "undefined" ? window : typeof global !== "undefined" ? global : {});
+    registerPlugin = Capacitor.registerPlugin;
+    WebPlugin = class {
+      constructor() {
+        this.listeners = {};
+        this.retainedEventArguments = {};
+        this.windowListeners = {};
+      }
+      addListener(eventName, listenerFunc) {
+        let firstListener = false;
+        const listeners = this.listeners[eventName];
+        if (!listeners) {
+          this.listeners[eventName] = [];
+          firstListener = true;
+        }
+        this.listeners[eventName].push(listenerFunc);
+        const windowListener = this.windowListeners[eventName];
+        if (windowListener && !windowListener.registered) {
+          this.addWindowListener(windowListener);
+        }
+        if (firstListener) {
+          this.sendRetainedArgumentsForEvent(eventName);
+        }
+        const remove = async () => this.removeListener(eventName, listenerFunc);
+        const p = Promise.resolve({ remove });
+        return p;
+      }
+      async removeAllListeners() {
+        this.listeners = {};
+        for (const listener in this.windowListeners) {
+          this.removeWindowListener(this.windowListeners[listener]);
+        }
+        this.windowListeners = {};
+      }
+      notifyListeners(eventName, data, retainUntilConsumed) {
+        const listeners = this.listeners[eventName];
+        if (!listeners) {
+          if (retainUntilConsumed) {
+            let args = this.retainedEventArguments[eventName];
+            if (!args) {
+              args = [];
+            }
+            args.push(data);
+            this.retainedEventArguments[eventName] = args;
+          }
+          return;
+        }
+        listeners.forEach((listener) => listener(data));
+      }
+      hasListeners(eventName) {
+        var _a;
+        return !!((_a = this.listeners[eventName]) === null || _a === void 0 ? void 0 : _a.length);
+      }
+      registerWindowListener(windowEventName, pluginEventName) {
+        this.windowListeners[pluginEventName] = {
+          registered: false,
+          windowEventName,
+          pluginEventName,
+          handler: (event) => {
+            this.notifyListeners(pluginEventName, event);
+          }
+        };
+      }
+      unimplemented(msg = "not implemented") {
+        return new Capacitor.Exception(msg, ExceptionCode.Unimplemented);
+      }
+      unavailable(msg = "not available") {
+        return new Capacitor.Exception(msg, ExceptionCode.Unavailable);
+      }
+      async removeListener(eventName, listenerFunc) {
+        const listeners = this.listeners[eventName];
+        if (!listeners) {
+          return;
+        }
+        const index = listeners.indexOf(listenerFunc);
+        this.listeners[eventName].splice(index, 1);
+        if (!this.listeners[eventName].length) {
+          this.removeWindowListener(this.windowListeners[eventName]);
+        }
+      }
+      addWindowListener(handle) {
+        window.addEventListener(handle.windowEventName, handle.handler);
+        handle.registered = true;
+      }
+      removeWindowListener(handle) {
+        if (!handle) {
+          return;
+        }
+        window.removeEventListener(handle.windowEventName, handle.handler);
+        handle.registered = false;
+      }
+      sendRetainedArgumentsForEvent(eventName) {
+        const args = this.retainedEventArguments[eventName];
+        if (!args) {
+          return;
+        }
+        delete this.retainedEventArguments[eventName];
+        args.forEach((arg) => {
+          this.notifyListeners(eventName, arg);
+        });
+      }
+    };
+    encode = (str) => encodeURIComponent(str).replace(/%(2[346B]|5E|60|7C)/g, decodeURIComponent).replace(/[()]/g, escape);
+    decode = (str) => str.replace(/(%[\dA-F]{2})+/gi, decodeURIComponent);
+    CapacitorCookiesPluginWeb = class extends WebPlugin {
+      async getCookies() {
+        const cookies = document.cookie;
+        const cookieMap = {};
+        cookies.split(";").forEach((cookie) => {
+          if (cookie.length <= 0)
+            return;
+          let [key, value] = cookie.replace(/=/, "CAP_COOKIE").split("CAP_COOKIE");
+          key = decode(key).trim();
+          value = decode(value).trim();
+          cookieMap[key] = value;
+        });
+        return cookieMap;
+      }
+      async setCookie(options) {
+        try {
+          const encodedKey = encode(options.key);
+          const encodedValue = encode(options.value);
+          const expires = options.expires ? `; expires=${options.expires.replace("expires=", "")}` : "";
+          const path = (options.path || "/").replace("path=", "");
+          const domain = options.url != null && options.url.length > 0 ? `domain=${options.url}` : "";
+          document.cookie = `${encodedKey}=${encodedValue || ""}${expires}; path=${path}; ${domain};`;
+        } catch (error) {
+          return Promise.reject(error);
+        }
+      }
+      async deleteCookie(options) {
+        try {
+          document.cookie = `${options.key}=; Max-Age=0`;
+        } catch (error) {
+          return Promise.reject(error);
+        }
+      }
+      async clearCookies() {
+        try {
+          const cookies = document.cookie.split(";") || [];
+          for (const cookie of cookies) {
+            document.cookie = cookie.replace(/^ +/, "").replace(/=.*/, `=;expires=${(/* @__PURE__ */ new Date()).toUTCString()};path=/`);
+          }
+        } catch (error) {
+          return Promise.reject(error);
+        }
+      }
+      async clearAllCookies() {
+        try {
+          await this.clearCookies();
+        } catch (error) {
+          return Promise.reject(error);
+        }
+      }
+    };
+    CapacitorCookies = registerPlugin("CapacitorCookies", {
+      web: () => new CapacitorCookiesPluginWeb()
+    });
+    readBlobAsBase64 = async (blob) => new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => {
+        const base64String = reader.result;
+        resolve(base64String.indexOf(",") >= 0 ? base64String.split(",")[1] : base64String);
+      };
+      reader.onerror = (error) => reject(error);
+      reader.readAsDataURL(blob);
+    });
+    normalizeHttpHeaders = (headers = {}) => {
+      const originalKeys = Object.keys(headers);
+      const loweredKeys = Object.keys(headers).map((k) => k.toLocaleLowerCase());
+      const normalized = loweredKeys.reduce((acc, key, index) => {
+        acc[key] = headers[originalKeys[index]];
+        return acc;
+      }, {});
+      return normalized;
+    };
+    buildUrlParams = (params, shouldEncode = true) => {
+      if (!params)
+        return null;
+      const output = Object.entries(params).reduce((accumulator, entry) => {
+        const [key, value] = entry;
+        let encodedValue;
+        let item;
+        if (Array.isArray(value)) {
+          item = "";
+          value.forEach((str) => {
+            encodedValue = shouldEncode ? encodeURIComponent(str) : str;
+            item += `${key}=${encodedValue}&`;
+          });
+          item.slice(0, -1);
+        } else {
+          encodedValue = shouldEncode ? encodeURIComponent(value) : value;
+          item = `${key}=${encodedValue}`;
+        }
+        return `${accumulator}&${item}`;
+      }, "");
+      return output.substr(1);
+    };
+    buildRequestInit = (options, extra = {}) => {
+      const output = Object.assign({ method: options.method || "GET", headers: options.headers }, extra);
+      const headers = normalizeHttpHeaders(options.headers);
+      const type = headers["content-type"] || "";
+      if (typeof options.data === "string") {
+        output.body = options.data;
+      } else if (type.includes("application/x-www-form-urlencoded")) {
+        const params = new URLSearchParams();
+        for (const [key, value] of Object.entries(options.data || {})) {
+          params.set(key, value);
+        }
+        output.body = params.toString();
+      } else if (type.includes("multipart/form-data") || options.data instanceof FormData) {
+        const form = new FormData();
+        if (options.data instanceof FormData) {
+          options.data.forEach((value, key) => {
+            form.append(key, value);
+          });
+        } else {
+          for (const key of Object.keys(options.data)) {
+            form.append(key, options.data[key]);
+          }
+        }
+        output.body = form;
+        const headers2 = new Headers(output.headers);
+        headers2.delete("content-type");
+        output.headers = headers2;
+      } else if (type.includes("application/json") || typeof options.data === "object") {
+        output.body = JSON.stringify(options.data);
+      }
+      return output;
+    };
+    CapacitorHttpPluginWeb = class extends WebPlugin {
+      /**
+       * Perform an Http request given a set of options
+       * @param options Options to build the HTTP request
+       */
+      async request(options) {
+        const requestInit = buildRequestInit(options, options.webFetchExtra);
+        const urlParams = buildUrlParams(options.params, options.shouldEncodeUrlParams);
+        const url = urlParams ? `${options.url}?${urlParams}` : options.url;
+        const response = await fetch(url, requestInit);
+        const contentType = response.headers.get("content-type") || "";
+        let { responseType = "text" } = response.ok ? options : {};
+        if (contentType.includes("application/json")) {
+          responseType = "json";
+        }
+        let data;
+        let blob;
+        switch (responseType) {
+          case "arraybuffer":
+          case "blob":
+            blob = await response.blob();
+            data = await readBlobAsBase64(blob);
+            break;
+          case "json":
+            data = await response.json();
+            break;
+          case "document":
+          case "text":
+          default:
+            data = await response.text();
+        }
+        const headers = {};
+        response.headers.forEach((value, key) => {
+          headers[key] = value;
+        });
+        return {
+          data,
+          headers,
+          status: response.status,
+          url: response.url
+        };
+      }
+      /**
+       * Perform an Http GET request given a set of options
+       * @param options Options to build the HTTP request
+       */
+      async get(options) {
+        return this.request(Object.assign(Object.assign({}, options), { method: "GET" }));
+      }
+      /**
+       * Perform an Http POST request given a set of options
+       * @param options Options to build the HTTP request
+       */
+      async post(options) {
+        return this.request(Object.assign(Object.assign({}, options), { method: "POST" }));
+      }
+      /**
+       * Perform an Http PUT request given a set of options
+       * @param options Options to build the HTTP request
+       */
+      async put(options) {
+        return this.request(Object.assign(Object.assign({}, options), { method: "PUT" }));
+      }
+      /**
+       * Perform an Http PATCH request given a set of options
+       * @param options Options to build the HTTP request
+       */
+      async patch(options) {
+        return this.request(Object.assign(Object.assign({}, options), { method: "PATCH" }));
+      }
+      /**
+       * Perform an Http DELETE request given a set of options
+       * @param options Options to build the HTTP request
+       */
+      async delete(options) {
+        return this.request(Object.assign(Object.assign({}, options), { method: "DELETE" }));
+      }
+    };
+    CapacitorHttp = registerPlugin("CapacitorHttp", {
+      web: () => new CapacitorHttpPluginWeb()
+    });
+    (function(SystemBarsStyle2) {
+      SystemBarsStyle2["Dark"] = "DARK";
+      SystemBarsStyle2["Light"] = "LIGHT";
+      SystemBarsStyle2["Default"] = "DEFAULT";
+    })(SystemBarsStyle || (SystemBarsStyle = {}));
+    (function(SystemBarType2) {
+      SystemBarType2["StatusBar"] = "StatusBar";
+      SystemBarType2["NavigationBar"] = "NavigationBar";
+    })(SystemBarType || (SystemBarType = {}));
+    SystemBarsPluginWeb = class extends WebPlugin {
+      async setStyle() {
+        this.unavailable("not available for web");
+      }
+      async setAnimation() {
+        this.unavailable("not available for web");
+      }
+      async show() {
+        this.unavailable("not available for web");
+      }
+      async hide() {
+        this.unavailable("not available for web");
+      }
+    };
+    SystemBars = registerPlugin("SystemBars", {
+      web: () => new SystemBarsPluginWeb()
+    });
+  }
+});
+
+// node_modules/@capacitor-community/sqlite/dist/esm/web.js
+var web_exports = {};
+__export(web_exports, {
+  CapacitorSQLiteWeb: () => CapacitorSQLiteWeb
+});
+var CapacitorSQLiteWeb;
+var init_web = __esm({
+  "node_modules/@capacitor-community/sqlite/dist/esm/web.js"() {
+    init_dist();
+    CapacitorSQLiteWeb = class extends WebPlugin {
+      constructor() {
+        super(...arguments);
+        this.jeepSqliteElement = null;
+        this.isWebStoreOpen = false;
+      }
+      async initWebStore() {
+        await customElements.whenDefined("jeep-sqlite");
+        this.jeepSqliteElement = document.querySelector("jeep-sqlite");
+        this.ensureJeepSqliteIsAvailable();
+        this.jeepSqliteElement.addEventListener("jeepSqliteImportProgress", (event) => {
+          this.notifyListeners("sqliteImportProgressEvent", event.detail);
+        });
+        this.jeepSqliteElement.addEventListener("jeepSqliteExportProgress", (event) => {
+          this.notifyListeners("sqliteExportProgressEvent", event.detail);
+        });
+        this.jeepSqliteElement.addEventListener("jeepSqliteHTTPRequestEnded", (event) => {
+          this.notifyListeners("sqliteHTTPRequestEndedEvent", event.detail);
+        });
+        this.jeepSqliteElement.addEventListener("jeepSqlitePickDatabaseEnded", (event) => {
+          this.notifyListeners("sqlitePickDatabaseEndedEvent", event.detail);
+        });
+        this.jeepSqliteElement.addEventListener("jeepSqliteSaveDatabaseToDisk", (event) => {
+          this.notifyListeners("sqliteSaveDatabaseToDiskEvent", event.detail);
+        });
+        if (!this.isWebStoreOpen) {
+          this.isWebStoreOpen = await this.jeepSqliteElement.isStoreOpen();
+        }
+        return;
+      }
+      async saveToStore(options) {
+        this.ensureJeepSqliteIsAvailable();
+        this.ensureWebstoreIsOpen();
+        try {
+          await this.jeepSqliteElement.saveToStore(options);
+          return;
+        } catch (err) {
+          throw new Error(`${err}`);
+        }
+      }
+      async getFromLocalDiskToStore(options) {
+        this.ensureJeepSqliteIsAvailable();
+        this.ensureWebstoreIsOpen();
+        try {
+          await this.jeepSqliteElement.getFromLocalDiskToStore(options);
+          return;
+        } catch (err) {
+          throw new Error(`${err}`);
+        }
+      }
+      async saveToLocalDisk(options) {
+        this.ensureJeepSqliteIsAvailable();
+        this.ensureWebstoreIsOpen();
+        try {
+          await this.jeepSqliteElement.saveToLocalDisk(options);
+          return;
+        } catch (err) {
+          throw new Error(`${err}`);
+        }
+      }
+      async echo(options) {
+        this.ensureJeepSqliteIsAvailable();
+        const echoResult = await this.jeepSqliteElement.echo(options);
+        return echoResult;
+      }
+      async createConnection(options) {
+        this.ensureJeepSqliteIsAvailable();
+        this.ensureWebstoreIsOpen();
+        try {
+          await this.jeepSqliteElement.createConnection(options);
+          return;
+        } catch (err) {
+          throw new Error(`${err}`);
+        }
+      }
+      async open(options) {
+        this.ensureJeepSqliteIsAvailable();
+        this.ensureWebstoreIsOpen();
+        try {
+          await this.jeepSqliteElement.open(options);
+          return;
+        } catch (err) {
+          throw new Error(`${err}`);
+        }
+      }
+      async closeConnection(options) {
+        this.ensureJeepSqliteIsAvailable();
+        this.ensureWebstoreIsOpen();
+        try {
+          await this.jeepSqliteElement.closeConnection(options);
+          return;
+        } catch (err) {
+          throw new Error(`${err}`);
+        }
+      }
+      async getVersion(options) {
+        this.ensureJeepSqliteIsAvailable();
+        this.ensureWebstoreIsOpen();
+        try {
+          const versionResult = await this.jeepSqliteElement.getVersion(options);
+          return versionResult;
+        } catch (err) {
+          throw new Error(`${err}`);
+        }
+      }
+      async checkConnectionsConsistency(options) {
+        this.ensureJeepSqliteIsAvailable();
+        try {
+          const consistencyResult = await this.jeepSqliteElement.checkConnectionsConsistency(options);
+          return consistencyResult;
+        } catch (err) {
+          throw new Error(`${err}`);
+        }
+      }
+      async close(options) {
+        this.ensureJeepSqliteIsAvailable();
+        this.ensureWebstoreIsOpen();
+        try {
+          await this.jeepSqliteElement.close(options);
+          return;
+        } catch (err) {
+          throw new Error(`${err}`);
+        }
+      }
+      async beginTransaction(options) {
+        this.ensureJeepSqliteIsAvailable();
+        this.ensureWebstoreIsOpen();
+        try {
+          const changes = await this.jeepSqliteElement.beginTransaction(options);
+          return changes;
+        } catch (err) {
+          throw new Error(`${err}`);
+        }
+      }
+      async commitTransaction(options) {
+        this.ensureJeepSqliteIsAvailable();
+        this.ensureWebstoreIsOpen();
+        try {
+          const changes = await this.jeepSqliteElement.commitTransaction(options);
+          return changes;
+        } catch (err) {
+          throw new Error(`${err}`);
+        }
+      }
+      async rollbackTransaction(options) {
+        this.ensureJeepSqliteIsAvailable();
+        this.ensureWebstoreIsOpen();
+        try {
+          const changes = await this.jeepSqliteElement.rollbackTransaction(options);
+          return changes;
+        } catch (err) {
+          throw new Error(`${err}`);
+        }
+      }
+      async isTransactionActive(options) {
+        this.ensureJeepSqliteIsAvailable();
+        this.ensureWebstoreIsOpen();
+        try {
+          const result = await this.jeepSqliteElement.isTransactionActive(options);
+          return result;
+        } catch (err) {
+          throw new Error(`${err}`);
+        }
+      }
+      async getTableList(options) {
+        this.ensureJeepSqliteIsAvailable();
+        this.ensureWebstoreIsOpen();
+        try {
+          const tableListResult = await this.jeepSqliteElement.getTableList(options);
+          return tableListResult;
+        } catch (err) {
+          throw new Error(`${err}`);
+        }
+      }
+      async execute(options) {
+        this.ensureJeepSqliteIsAvailable();
+        this.ensureWebstoreIsOpen();
+        try {
+          const executeResult = await this.jeepSqliteElement.execute(options);
+          return executeResult;
+        } catch (err) {
+          throw new Error(`${err}`);
+        }
+      }
+      async executeSet(options) {
+        this.ensureJeepSqliteIsAvailable();
+        this.ensureWebstoreIsOpen();
+        try {
+          const executeResult = await this.jeepSqliteElement.executeSet(options);
+          return executeResult;
+        } catch (err) {
+          throw new Error(`${err}`);
+        }
+      }
+      async run(options) {
+        this.ensureJeepSqliteIsAvailable();
+        this.ensureWebstoreIsOpen();
+        try {
+          const runResult = await this.jeepSqliteElement.run(options);
+          return runResult;
+        } catch (err) {
+          throw new Error(`${err}`);
+        }
+      }
+      async query(options) {
+        this.ensureJeepSqliteIsAvailable();
+        this.ensureWebstoreIsOpen();
+        try {
+          const queryResult = await this.jeepSqliteElement.query(options);
+          return queryResult;
+        } catch (err) {
+          throw new Error(`${err}`);
+        }
+      }
+      async isDBExists(options) {
+        this.ensureJeepSqliteIsAvailable();
+        this.ensureWebstoreIsOpen();
+        try {
+          const dbExistsResult = await this.jeepSqliteElement.isDBExists(options);
+          return dbExistsResult;
+        } catch (err) {
+          throw new Error(`${err}`);
+        }
+      }
+      async isDBOpen(options) {
+        this.ensureJeepSqliteIsAvailable();
+        this.ensureWebstoreIsOpen();
+        try {
+          const isDBOpenResult = await this.jeepSqliteElement.isDBOpen(options);
+          return isDBOpenResult;
+        } catch (err) {
+          throw new Error(`${err}`);
+        }
+      }
+      async isDatabase(options) {
+        this.ensureJeepSqliteIsAvailable();
+        this.ensureWebstoreIsOpen();
+        try {
+          const isDatabaseResult = await this.jeepSqliteElement.isDatabase(options);
+          return isDatabaseResult;
+        } catch (err) {
+          throw new Error(`${err}`);
+        }
+      }
+      async isTableExists(options) {
+        this.ensureJeepSqliteIsAvailable();
+        this.ensureWebstoreIsOpen();
+        try {
+          const tableExistsResult = await this.jeepSqliteElement.isTableExists(options);
+          return tableExistsResult;
+        } catch (err) {
+          throw new Error(`${err}`);
+        }
+      }
+      async deleteDatabase(options) {
+        this.ensureJeepSqliteIsAvailable();
+        this.ensureWebstoreIsOpen();
+        try {
+          await this.jeepSqliteElement.deleteDatabase(options);
+          return;
+        } catch (err) {
+          throw new Error(`${err}`);
+        }
+      }
+      async isJsonValid(options) {
+        this.ensureJeepSqliteIsAvailable();
+        this.ensureWebstoreIsOpen();
+        try {
+          const isJsonValidResult = await this.jeepSqliteElement.isJsonValid(options);
+          return isJsonValidResult;
+        } catch (err) {
+          throw new Error(`${err}`);
+        }
+      }
+      async importFromJson(options) {
+        this.ensureJeepSqliteIsAvailable();
+        this.ensureWebstoreIsOpen();
+        try {
+          const importFromJsonResult = await this.jeepSqliteElement.importFromJson(options);
+          return importFromJsonResult;
+        } catch (err) {
+          throw new Error(`${err}`);
+        }
+      }
+      async exportToJson(options) {
+        this.ensureJeepSqliteIsAvailable();
+        this.ensureWebstoreIsOpen();
+        try {
+          const exportToJsonResult = await this.jeepSqliteElement.exportToJson(options);
+          return exportToJsonResult;
+        } catch (err) {
+          throw new Error(`${err}`);
+        }
+      }
+      async createSyncTable(options) {
+        this.ensureJeepSqliteIsAvailable();
+        this.ensureWebstoreIsOpen();
+        try {
+          const createSyncTableResult = await this.jeepSqliteElement.createSyncTable(options);
+          return createSyncTableResult;
+        } catch (err) {
+          throw new Error(`${err}`);
+        }
+      }
+      async setSyncDate(options) {
+        this.ensureJeepSqliteIsAvailable();
+        this.ensureWebstoreIsOpen();
+        try {
+          await this.jeepSqliteElement.setSyncDate(options);
+          return;
+        } catch (err) {
+          throw new Error(`${err}`);
+        }
+      }
+      async getSyncDate(options) {
+        this.ensureJeepSqliteIsAvailable();
+        this.ensureWebstoreIsOpen();
+        try {
+          const getSyncDateResult = await this.jeepSqliteElement.getSyncDate(options);
+          return getSyncDateResult;
+        } catch (err) {
+          throw new Error(`${err}`);
+        }
+      }
+      async deleteExportedRows(options) {
+        this.ensureJeepSqliteIsAvailable();
+        this.ensureWebstoreIsOpen();
+        try {
+          await this.jeepSqliteElement.deleteExportedRows(options);
+          return;
+        } catch (err) {
+          throw new Error(`${err}`);
+        }
+      }
+      async addUpgradeStatement(options) {
+        this.ensureJeepSqliteIsAvailable();
+        this.ensureWebstoreIsOpen();
+        try {
+          await this.jeepSqliteElement.addUpgradeStatement(options);
+          return;
+        } catch (err) {
+          throw new Error(`${err}`);
+        }
+      }
+      async copyFromAssets(options) {
+        this.ensureJeepSqliteIsAvailable();
+        this.ensureWebstoreIsOpen();
+        try {
+          await this.jeepSqliteElement.copyFromAssets(options);
+          return;
+        } catch (err) {
+          throw new Error(`${err}`);
+        }
+      }
+      async getFromHTTPRequest(options) {
+        this.ensureJeepSqliteIsAvailable();
+        this.ensureWebstoreIsOpen();
+        try {
+          await this.jeepSqliteElement.getFromHTTPRequest(options);
+          return;
+        } catch (err) {
+          throw new Error(`${err}`);
+        }
+      }
+      async getDatabaseList() {
+        this.ensureJeepSqliteIsAvailable();
+        this.ensureWebstoreIsOpen();
+        try {
+          const databaseListResult = await this.jeepSqliteElement.getDatabaseList();
+          return databaseListResult;
+        } catch (err) {
+          throw new Error(`${err}`);
+        }
+      }
+      /**
+       * Checks if the `jeep-sqlite` element is present in the DOM.
+       * If it's not in the DOM, this method throws an Error.
+       *
+       * Attention: This will always fail, if the `intWebStore()` method wasn't called before.
+       */
+      ensureJeepSqliteIsAvailable() {
+        if (this.jeepSqliteElement === null) {
+          throw new Error(`The jeep-sqlite element is not present in the DOM! Please check the @capacitor-community/sqlite documentation for instructions regarding the web platform.`);
+        }
+      }
+      ensureWebstoreIsOpen() {
+        if (!this.isWebStoreOpen) {
+          throw new Error('WebStore is not open yet. You have to call "initWebStore()" first.');
+        }
+      }
+      ////////////////////////////////////
+      ////// UNIMPLEMENTED METHODS
+      ////////////////////////////////////
+      async getUrl() {
+        throw this.unimplemented("Not implemented on web.");
+      }
+      async getMigratableDbList(options) {
+        console.log("getMigratableDbList", options);
+        throw this.unimplemented("Not implemented on web.");
+      }
+      async addSQLiteSuffix(options) {
+        console.log("addSQLiteSuffix", options);
+        throw this.unimplemented("Not implemented on web.");
+      }
+      async deleteOldDatabases(options) {
+        console.log("deleteOldDatabases", options);
+        throw this.unimplemented("Not implemented on web.");
+      }
+      async moveDatabasesAndAddSuffix(options) {
+        console.log("moveDatabasesAndAddSuffix", options);
+        throw this.unimplemented("Not implemented on web.");
+      }
+      async isSecretStored() {
+        throw this.unimplemented("Not implemented on web.");
+      }
+      async setEncryptionSecret(options) {
+        console.log("setEncryptionSecret", options);
+        throw this.unimplemented("Not implemented on web.");
+      }
+      async changeEncryptionSecret(options) {
+        console.log("changeEncryptionSecret", options);
+        throw this.unimplemented("Not implemented on web.");
+      }
+      async clearEncryptionSecret() {
+        console.log("clearEncryptionSecret");
+        throw this.unimplemented("Not implemented on web.");
+      }
+      async checkEncryptionSecret(options) {
+        console.log("checkEncryptionPassPhrase", options);
+        throw this.unimplemented("Not implemented on web.");
+      }
+      async getNCDatabasePath(options) {
+        console.log("getNCDatabasePath", options);
+        throw this.unimplemented("Not implemented on web.");
+      }
+      async createNCConnection(options) {
+        console.log("createNCConnection", options);
+        throw this.unimplemented("Not implemented on web.");
+      }
+      async closeNCConnection(options) {
+        console.log("closeNCConnection", options);
+        throw this.unimplemented("Not implemented on web.");
+      }
+      async isNCDatabase(options) {
+        console.log("isNCDatabase", options);
+        throw this.unimplemented("Not implemented on web.");
+      }
+      async isDatabaseEncrypted(options) {
+        console.log("isDatabaseEncrypted", options);
+        throw this.unimplemented("Not implemented on web.");
+      }
+      async isInConfigEncryption() {
+        throw this.unimplemented("Not implemented on web.");
+      }
+      async isInConfigBiometricAuth() {
+        throw this.unimplemented("Not implemented on web.");
+      }
+      async loadExtension(options) {
+        console.log("loadExtension", options);
+        throw this.unimplemented("Not implemented on web.");
+      }
+      async enableLoadExtension(options) {
+        console.log("enableLoadExtension", options);
+        throw this.unimplemented("Not implemented on web.");
+      }
+    };
+  }
+});
+
+// node_modules/chess.js/dist/esm/chess.js
+function rootNode(comment) {
+  return comment !== null ? { comment, variations: [] } : { variations: [] };
+}
+function node(move, suffix, nag, comment, variations) {
+  const node2 = { move, variations };
+  if (suffix) {
+    node2.suffix = suffix;
+  }
+  if (nag) {
+    node2.nag = nag;
+  }
+  if (comment !== null) {
+    node2.comment = comment;
+  }
+  return node2;
+}
+function lineToTree(...nodes) {
+  const [root, ...rest] = nodes;
+  let parent = root;
+  for (const child of rest) {
+    if (child !== null) {
+      parent.variations = [child, ...child.variations];
+      child.variations = [];
+      parent = child;
+    }
+  }
+  return root;
+}
+function pgn(headers, game) {
+  if (game.marker && game.marker.comment) {
+    let node2 = game.root;
+    while (true) {
+      const next = node2.variations[0];
+      if (!next) {
+        node2.comment = game.marker.comment;
+        break;
+      }
+      node2 = next;
+    }
+  }
+  return {
+    headers,
+    root: game.root,
+    result: (game.marker && game.marker.result) ?? void 0
+  };
+}
+function peg$subclass(child, parent) {
+  function C() {
+    this.constructor = child;
+  }
+  C.prototype = parent.prototype;
+  child.prototype = new C();
+}
+function peg$SyntaxError(message, expected, found, location) {
+  var self2 = Error.call(this, message);
+  if (Object.setPrototypeOf) {
+    Object.setPrototypeOf(self2, peg$SyntaxError.prototype);
+  }
+  self2.expected = expected;
+  self2.found = found;
+  self2.location = location;
+  self2.name = "SyntaxError";
+  return self2;
+}
+peg$subclass(peg$SyntaxError, Error);
+function peg$padEnd(str, targetLength, padString) {
+  padString = padString || " ";
+  if (str.length > targetLength) {
+    return str;
+  }
+  targetLength -= str.length;
+  padString += padString.repeat(targetLength);
+  return str + padString.slice(0, targetLength);
+}
+peg$SyntaxError.prototype.format = function(sources) {
+  var str = "Error: " + this.message;
+  if (this.location) {
+    var src = null;
+    var k;
+    for (k = 0; k < sources.length; k++) {
+      if (sources[k].source === this.location.source) {
+        src = sources[k].text.split(/\r\n|\n|\r/g);
+        break;
+      }
+    }
+    var s = this.location.start;
+    var offset_s = this.location.source && typeof this.location.source.offset === "function" ? this.location.source.offset(s) : s;
+    var loc = this.location.source + ":" + offset_s.line + ":" + offset_s.column;
+    if (src) {
+      var e = this.location.end;
+      var filler = peg$padEnd("", offset_s.line.toString().length, " ");
+      var line = src[s.line - 1];
+      var last = s.line === e.line ? e.column : line.length + 1;
+      var hatLen = last - s.column || 1;
+      str += "\n --> " + loc + "\n" + filler + " |\n" + offset_s.line + " | " + line + "\n" + filler + " | " + peg$padEnd("", s.column - 1, " ") + peg$padEnd("", hatLen, "^");
+    } else {
+      str += "\n at " + loc;
+    }
+  }
+  return str;
+};
+peg$SyntaxError.buildMessage = function(expected, found) {
+  var DESCRIBE_EXPECTATION_FNS = {
+    literal: function(expectation) {
+      return '"' + literalEscape(expectation.text) + '"';
+    },
+    class: function(expectation) {
+      var escapedParts = expectation.parts.map(function(part) {
+        return Array.isArray(part) ? classEscape(part[0]) + "-" + classEscape(part[1]) : classEscape(part);
+      });
+      return "[" + (expectation.inverted ? "^" : "") + escapedParts.join("") + "]";
+    },
+    any: function() {
+      return "any character";
+    },
+    end: function() {
+      return "end of input";
+    },
+    other: function(expectation) {
+      return expectation.description;
+    }
+  };
+  function hex(ch) {
+    return ch.charCodeAt(0).toString(16).toUpperCase();
+  }
+  function literalEscape(s) {
+    return s.replace(/\\/g, "\\\\").replace(/"/g, '\\"').replace(/\0/g, "\\0").replace(/\t/g, "\\t").replace(/\n/g, "\\n").replace(/\r/g, "\\r").replace(/[\x00-\x0F]/g, function(ch) {
+      return "\\x0" + hex(ch);
+    }).replace(/[\x10-\x1F\x7F-\x9F]/g, function(ch) {
+      return "\\x" + hex(ch);
+    });
+  }
+  function classEscape(s) {
+    return s.replace(/\\/g, "\\\\").replace(/\]/g, "\\]").replace(/\^/g, "\\^").replace(/-/g, "\\-").replace(/\0/g, "\\0").replace(/\t/g, "\\t").replace(/\n/g, "\\n").replace(/\r/g, "\\r").replace(/[\x00-\x0F]/g, function(ch) {
+      return "\\x0" + hex(ch);
+    }).replace(/[\x10-\x1F\x7F-\x9F]/g, function(ch) {
+      return "\\x" + hex(ch);
+    });
+  }
+  function describeExpectation(expectation) {
+    return DESCRIBE_EXPECTATION_FNS[expectation.type](expectation);
+  }
+  function describeExpected(expected2) {
+    var descriptions = expected2.map(describeExpectation);
+    var i, j;
+    descriptions.sort();
+    if (descriptions.length > 0) {
+      for (i = 1, j = 1; i < descriptions.length; i++) {
+        if (descriptions[i - 1] !== descriptions[i]) {
+          descriptions[j] = descriptions[i];
+          j++;
+        }
+      }
+      descriptions.length = j;
+    }
+    switch (descriptions.length) {
+      case 1:
+        return descriptions[0];
+      case 2:
+        return descriptions[0] + " or " + descriptions[1];
+      default:
+        return descriptions.slice(0, -1).join(", ") + ", or " + descriptions[descriptions.length - 1];
+    }
+  }
+  function describeFound(found2) {
+    return found2 ? '"' + literalEscape(found2) + '"' : "end of input";
+  }
+  return "Expected " + describeExpected(expected) + " but " + describeFound(found) + " found.";
+};
+function peg$parse(input, options) {
+  options = options !== void 0 ? options : {};
+  var peg$FAILED = {};
+  var peg$source = options.grammarSource;
+  var peg$startRuleFunctions = { pgn: peg$parsepgn };
+  var peg$startRuleFunction = peg$parsepgn;
+  var peg$c0 = "[";
+  var peg$c1 = '"';
+  var peg$c2 = "]";
+  var peg$c3 = ".";
+  var peg$c4 = "O-O-O";
+  var peg$c5 = "O-O";
+  var peg$c6 = "0-0-0";
+  var peg$c7 = "0-0";
+  var peg$c8 = "$";
+  var peg$c9 = "{";
+  var peg$c10 = "}";
+  var peg$c11 = ";";
+  var peg$c12 = "(";
+  var peg$c13 = ")";
+  var peg$c14 = "1-0";
+  var peg$c15 = "0-1";
+  var peg$c16 = "1/2-1/2";
+  var peg$c17 = "*";
+  var peg$r0 = /^[a-zA-Z]/;
+  var peg$r1 = /^[^"]/;
+  var peg$r2 = /^[0-9]/;
+  var peg$r3 = /^[.]/;
+  var peg$r4 = /^[a-zA-Z1-8\-=]/;
+  var peg$r5 = /^[+#]/;
+  var peg$r6 = /^[!?]/;
+  var peg$r7 = /^[^}]/;
+  var peg$r8 = /^[^\r\n]/;
+  var peg$r9 = /^[ \t\r\n]/;
+  var peg$e0 = peg$otherExpectation("tag pair");
+  var peg$e1 = peg$literalExpectation("[", false);
+  var peg$e2 = peg$literalExpectation('"', false);
+  var peg$e3 = peg$literalExpectation("]", false);
+  var peg$e4 = peg$otherExpectation("tag name");
+  var peg$e5 = peg$classExpectation([["a", "z"], ["A", "Z"]], false, false);
+  var peg$e6 = peg$otherExpectation("tag value");
+  var peg$e7 = peg$classExpectation(['"'], true, false);
+  var peg$e8 = peg$otherExpectation("move number");
+  var peg$e9 = peg$classExpectation([["0", "9"]], false, false);
+  var peg$e10 = peg$literalExpectation(".", false);
+  var peg$e11 = peg$classExpectation(["."], false, false);
+  var peg$e12 = peg$otherExpectation("standard algebraic notation");
+  var peg$e13 = peg$literalExpectation("O-O-O", false);
+  var peg$e14 = peg$literalExpectation("O-O", false);
+  var peg$e15 = peg$literalExpectation("0-0-0", false);
+  var peg$e16 = peg$literalExpectation("0-0", false);
+  var peg$e17 = peg$classExpectation([["a", "z"], ["A", "Z"], ["1", "8"], "-", "="], false, false);
+  var peg$e18 = peg$classExpectation(["+", "#"], false, false);
+  var peg$e19 = peg$otherExpectation("suffix annotation");
+  var peg$e20 = peg$classExpectation(["!", "?"], false, false);
+  var peg$e21 = peg$otherExpectation("NAG");
+  var peg$e22 = peg$literalExpectation("$", false);
+  var peg$e23 = peg$otherExpectation("brace comment");
+  var peg$e24 = peg$literalExpectation("{", false);
+  var peg$e25 = peg$classExpectation(["}"], true, false);
+  var peg$e26 = peg$literalExpectation("}", false);
+  var peg$e27 = peg$otherExpectation("rest of line comment");
+  var peg$e28 = peg$literalExpectation(";", false);
+  var peg$e29 = peg$classExpectation(["\r", "\n"], true, false);
+  var peg$e30 = peg$otherExpectation("variation");
+  var peg$e31 = peg$literalExpectation("(", false);
+  var peg$e32 = peg$literalExpectation(")", false);
+  var peg$e33 = peg$otherExpectation("game termination marker");
+  var peg$e34 = peg$literalExpectation("1-0", false);
+  var peg$e35 = peg$literalExpectation("0-1", false);
+  var peg$e36 = peg$literalExpectation("1/2-1/2", false);
+  var peg$e37 = peg$literalExpectation("*", false);
+  var peg$e38 = peg$otherExpectation("whitespace");
+  var peg$e39 = peg$classExpectation([" ", "	", "\r", "\n"], false, false);
+  var peg$f0 = function(headers, game) {
+    return pgn(headers, game);
+  };
+  var peg$f1 = function(tagPairs) {
+    return Object.fromEntries(tagPairs);
+  };
+  var peg$f2 = function(tagName, tagValue) {
+    return [tagName, tagValue];
+  };
+  var peg$f3 = function(root, marker) {
+    return { root, marker };
+  };
+  var peg$f4 = function(comment, moves) {
+    return lineToTree(rootNode(comment), ...moves.flat());
+  };
+  var peg$f5 = function(san, suffix, nag, comment, variations) {
+    return node(san, suffix, nag, comment, variations);
+  };
+  var peg$f6 = function(nag) {
+    return nag;
+  };
+  var peg$f7 = function(comment) {
+    return comment.replace(/[\r\n]+/g, " ");
+  };
+  var peg$f8 = function(comment) {
+    return comment.trim();
+  };
+  var peg$f9 = function(line) {
+    return line;
+  };
+  var peg$f10 = function(result, comment) {
+    return { result, comment };
+  };
+  var peg$currPos = options.peg$currPos | 0;
+  var peg$posDetailsCache = [{ line: 1, column: 1 }];
+  var peg$maxFailPos = peg$currPos;
+  var peg$maxFailExpected = options.peg$maxFailExpected || [];
+  var peg$silentFails = options.peg$silentFails | 0;
+  var peg$result;
+  if (options.startRule) {
+    if (!(options.startRule in peg$startRuleFunctions)) {
+      throw new Error(`Can't start parsing from rule "` + options.startRule + '".');
+    }
+    peg$startRuleFunction = peg$startRuleFunctions[options.startRule];
+  }
+  function peg$literalExpectation(text, ignoreCase) {
+    return { type: "literal", text, ignoreCase };
+  }
+  function peg$classExpectation(parts, inverted, ignoreCase) {
+    return { type: "class", parts, inverted, ignoreCase };
+  }
+  function peg$endExpectation() {
+    return { type: "end" };
+  }
+  function peg$otherExpectation(description) {
+    return { type: "other", description };
+  }
+  function peg$computePosDetails(pos) {
+    var details = peg$posDetailsCache[pos];
+    var p;
+    if (details) {
+      return details;
+    } else {
+      if (pos >= peg$posDetailsCache.length) {
+        p = peg$posDetailsCache.length - 1;
+      } else {
+        p = pos;
+        while (!peg$posDetailsCache[--p]) {
+        }
+      }
+      details = peg$posDetailsCache[p];
+      details = {
+        line: details.line,
+        column: details.column
+      };
+      while (p < pos) {
+        if (input.charCodeAt(p) === 10) {
+          details.line++;
+          details.column = 1;
+        } else {
+          details.column++;
+        }
+        p++;
+      }
+      peg$posDetailsCache[pos] = details;
+      return details;
+    }
+  }
+  function peg$computeLocation(startPos, endPos, offset) {
+    var startPosDetails = peg$computePosDetails(startPos);
+    var endPosDetails = peg$computePosDetails(endPos);
+    var res = {
+      source: peg$source,
+      start: {
+        offset: startPos,
+        line: startPosDetails.line,
+        column: startPosDetails.column
+      },
+      end: {
+        offset: endPos,
+        line: endPosDetails.line,
+        column: endPosDetails.column
+      }
+    };
+    return res;
+  }
+  function peg$fail(expected) {
+    if (peg$currPos < peg$maxFailPos) {
+      return;
+    }
+    if (peg$currPos > peg$maxFailPos) {
+      peg$maxFailPos = peg$currPos;
+      peg$maxFailExpected = [];
+    }
+    peg$maxFailExpected.push(expected);
+  }
+  function peg$buildStructuredError(expected, found, location) {
+    return new peg$SyntaxError(
+      peg$SyntaxError.buildMessage(expected, found),
+      expected,
+      found,
+      location
+    );
+  }
+  function peg$parsepgn() {
+    var s0, s1, s2;
+    s0 = peg$currPos;
+    s1 = peg$parsetagPairSection();
+    s2 = peg$parsemoveTextSection();
+    s0 = peg$f0(s1, s2);
+    return s0;
+  }
+  function peg$parsetagPairSection() {
+    var s0, s1, s2;
+    s0 = peg$currPos;
+    s1 = [];
+    s2 = peg$parsetagPair();
+    while (s2 !== peg$FAILED) {
+      s1.push(s2);
+      s2 = peg$parsetagPair();
+    }
+    s2 = peg$parse_();
+    s0 = peg$f1(s1);
+    return s0;
+  }
+  function peg$parsetagPair() {
+    var s0, s2, s4, s6, s7, s8, s10;
+    peg$silentFails++;
+    s0 = peg$currPos;
+    peg$parse_();
+    if (input.charCodeAt(peg$currPos) === 91) {
+      s2 = peg$c0;
+      peg$currPos++;
+    } else {
+      s2 = peg$FAILED;
+      if (peg$silentFails === 0) {
+        peg$fail(peg$e1);
+      }
+    }
+    if (s2 !== peg$FAILED) {
+      peg$parse_();
+      s4 = peg$parsetagName();
+      if (s4 !== peg$FAILED) {
+        peg$parse_();
+        if (input.charCodeAt(peg$currPos) === 34) {
+          s6 = peg$c1;
+          peg$currPos++;
+        } else {
+          s6 = peg$FAILED;
+          if (peg$silentFails === 0) {
+            peg$fail(peg$e2);
+          }
+        }
+        if (s6 !== peg$FAILED) {
+          s7 = peg$parsetagValue();
+          if (input.charCodeAt(peg$currPos) === 34) {
+            s8 = peg$c1;
+            peg$currPos++;
+          } else {
+            s8 = peg$FAILED;
+            if (peg$silentFails === 0) {
+              peg$fail(peg$e2);
+            }
+          }
+          if (s8 !== peg$FAILED) {
+            peg$parse_();
+            if (input.charCodeAt(peg$currPos) === 93) {
+              s10 = peg$c2;
+              peg$currPos++;
+            } else {
+              s10 = peg$FAILED;
+              if (peg$silentFails === 0) {
+                peg$fail(peg$e3);
+              }
+            }
+            if (s10 !== peg$FAILED) {
+              s0 = peg$f2(s4, s7);
+            } else {
+              peg$currPos = s0;
+              s0 = peg$FAILED;
+            }
+          } else {
+            peg$currPos = s0;
+            s0 = peg$FAILED;
+          }
+        } else {
+          peg$currPos = s0;
+          s0 = peg$FAILED;
+        }
+      } else {
+        peg$currPos = s0;
+        s0 = peg$FAILED;
+      }
+    } else {
+      peg$currPos = s0;
+      s0 = peg$FAILED;
+    }
+    peg$silentFails--;
+    if (s0 === peg$FAILED) {
+      if (peg$silentFails === 0) {
+        peg$fail(peg$e0);
+      }
+    }
+    return s0;
+  }
+  function peg$parsetagName() {
+    var s0, s1, s2;
+    peg$silentFails++;
+    s0 = peg$currPos;
+    s1 = [];
+    s2 = input.charAt(peg$currPos);
+    if (peg$r0.test(s2)) {
+      peg$currPos++;
+    } else {
+      s2 = peg$FAILED;
+      if (peg$silentFails === 0) {
+        peg$fail(peg$e5);
+      }
+    }
+    if (s2 !== peg$FAILED) {
+      while (s2 !== peg$FAILED) {
+        s1.push(s2);
+        s2 = input.charAt(peg$currPos);
+        if (peg$r0.test(s2)) {
+          peg$currPos++;
+        } else {
+          s2 = peg$FAILED;
+          if (peg$silentFails === 0) {
+            peg$fail(peg$e5);
+          }
+        }
+      }
+    } else {
+      s1 = peg$FAILED;
+    }
+    if (s1 !== peg$FAILED) {
+      s0 = input.substring(s0, peg$currPos);
+    } else {
+      s0 = s1;
+    }
+    peg$silentFails--;
+    if (s0 === peg$FAILED) {
+      s1 = peg$FAILED;
+      if (peg$silentFails === 0) {
+        peg$fail(peg$e4);
+      }
+    }
+    return s0;
+  }
+  function peg$parsetagValue() {
+    var s0, s1, s2;
+    peg$silentFails++;
+    s0 = peg$currPos;
+    s1 = [];
+    s2 = input.charAt(peg$currPos);
+    if (peg$r1.test(s2)) {
+      peg$currPos++;
+    } else {
+      s2 = peg$FAILED;
+      if (peg$silentFails === 0) {
+        peg$fail(peg$e7);
+      }
+    }
+    while (s2 !== peg$FAILED) {
+      s1.push(s2);
+      s2 = input.charAt(peg$currPos);
+      if (peg$r1.test(s2)) {
+        peg$currPos++;
+      } else {
+        s2 = peg$FAILED;
+        if (peg$silentFails === 0) {
+          peg$fail(peg$e7);
+        }
+      }
+    }
+    s0 = input.substring(s0, peg$currPos);
+    peg$silentFails--;
+    s1 = peg$FAILED;
+    if (peg$silentFails === 0) {
+      peg$fail(peg$e6);
+    }
+    return s0;
+  }
+  function peg$parsemoveTextSection() {
+    var s0, s1, s3;
+    s0 = peg$currPos;
+    s1 = peg$parseline();
+    peg$parse_();
+    s3 = peg$parsegameTerminationMarker();
+    if (s3 === peg$FAILED) {
+      s3 = null;
+    }
+    peg$parse_();
+    s0 = peg$f3(s1, s3);
+    return s0;
+  }
+  function peg$parseline() {
+    var s0, s1, s2, s3;
+    s0 = peg$currPos;
+    s1 = peg$parsecomment();
+    if (s1 === peg$FAILED) {
+      s1 = null;
+    }
+    s2 = [];
+    s3 = peg$parsemove();
+    while (s3 !== peg$FAILED) {
+      s2.push(s3);
+      s3 = peg$parsemove();
+    }
+    s0 = peg$f4(s1, s2);
+    return s0;
+  }
+  function peg$parsemove() {
+    var s0, s4, s5, s6, s7, s8, s9, s10;
+    s0 = peg$currPos;
+    peg$parse_();
+    peg$parsemoveNumber();
+    peg$parse_();
+    s4 = peg$parsesan();
+    if (s4 !== peg$FAILED) {
+      s5 = peg$parsesuffixAnnotation();
+      if (s5 === peg$FAILED) {
+        s5 = null;
+      }
+      s6 = [];
+      s7 = peg$parsenag();
+      while (s7 !== peg$FAILED) {
+        s6.push(s7);
+        s7 = peg$parsenag();
+      }
+      s7 = peg$parse_();
+      s8 = peg$parsecomment();
+      if (s8 === peg$FAILED) {
+        s8 = null;
+      }
+      s9 = [];
+      s10 = peg$parsevariation();
+      while (s10 !== peg$FAILED) {
+        s9.push(s10);
+        s10 = peg$parsevariation();
+      }
+      s0 = peg$f5(s4, s5, s6, s8, s9);
+    } else {
+      peg$currPos = s0;
+      s0 = peg$FAILED;
+    }
+    return s0;
+  }
+  function peg$parsemoveNumber() {
+    var s0, s1, s2, s3, s4, s5;
+    peg$silentFails++;
+    s0 = peg$currPos;
+    s1 = [];
+    s2 = input.charAt(peg$currPos);
+    if (peg$r2.test(s2)) {
+      peg$currPos++;
+    } else {
+      s2 = peg$FAILED;
+      if (peg$silentFails === 0) {
+        peg$fail(peg$e9);
+      }
+    }
+    while (s2 !== peg$FAILED) {
+      s1.push(s2);
+      s2 = input.charAt(peg$currPos);
+      if (peg$r2.test(s2)) {
+        peg$currPos++;
+      } else {
+        s2 = peg$FAILED;
+        if (peg$silentFails === 0) {
+          peg$fail(peg$e9);
+        }
+      }
+    }
+    if (input.charCodeAt(peg$currPos) === 46) {
+      s2 = peg$c3;
+      peg$currPos++;
+    } else {
+      s2 = peg$FAILED;
+      if (peg$silentFails === 0) {
+        peg$fail(peg$e10);
+      }
+    }
+    if (s2 !== peg$FAILED) {
+      s3 = peg$parse_();
+      s4 = [];
+      s5 = input.charAt(peg$currPos);
+      if (peg$r3.test(s5)) {
+        peg$currPos++;
+      } else {
+        s5 = peg$FAILED;
+        if (peg$silentFails === 0) {
+          peg$fail(peg$e11);
+        }
+      }
+      while (s5 !== peg$FAILED) {
+        s4.push(s5);
+        s5 = input.charAt(peg$currPos);
+        if (peg$r3.test(s5)) {
+          peg$currPos++;
+        } else {
+          s5 = peg$FAILED;
+          if (peg$silentFails === 0) {
+            peg$fail(peg$e11);
+          }
+        }
+      }
+      s1 = [s1, s2, s3, s4];
+      s0 = s1;
+    } else {
+      peg$currPos = s0;
+      s0 = peg$FAILED;
+    }
+    peg$silentFails--;
+    if (s0 === peg$FAILED) {
+      s1 = peg$FAILED;
+      if (peg$silentFails === 0) {
+        peg$fail(peg$e8);
+      }
+    }
+    return s0;
+  }
+  function peg$parsesan() {
+    var s0, s1, s2, s3, s4, s5;
+    peg$silentFails++;
+    s0 = peg$currPos;
+    s1 = peg$currPos;
+    if (input.substr(peg$currPos, 5) === peg$c4) {
+      s2 = peg$c4;
+      peg$currPos += 5;
+    } else {
+      s2 = peg$FAILED;
+      if (peg$silentFails === 0) {
+        peg$fail(peg$e13);
+      }
+    }
+    if (s2 === peg$FAILED) {
+      if (input.substr(peg$currPos, 3) === peg$c5) {
+        s2 = peg$c5;
+        peg$currPos += 3;
+      } else {
+        s2 = peg$FAILED;
+        if (peg$silentFails === 0) {
+          peg$fail(peg$e14);
+        }
+      }
+      if (s2 === peg$FAILED) {
+        if (input.substr(peg$currPos, 5) === peg$c6) {
+          s2 = peg$c6;
+          peg$currPos += 5;
+        } else {
+          s2 = peg$FAILED;
+          if (peg$silentFails === 0) {
+            peg$fail(peg$e15);
+          }
+        }
+        if (s2 === peg$FAILED) {
+          if (input.substr(peg$currPos, 3) === peg$c7) {
+            s2 = peg$c7;
+            peg$currPos += 3;
+          } else {
+            s2 = peg$FAILED;
+            if (peg$silentFails === 0) {
+              peg$fail(peg$e16);
+            }
+          }
+          if (s2 === peg$FAILED) {
+            s2 = peg$currPos;
+            s3 = input.charAt(peg$currPos);
+            if (peg$r0.test(s3)) {
+              peg$currPos++;
+            } else {
+              s3 = peg$FAILED;
+              if (peg$silentFails === 0) {
+                peg$fail(peg$e5);
+              }
+            }
+            if (s3 !== peg$FAILED) {
+              s4 = [];
+              s5 = input.charAt(peg$currPos);
+              if (peg$r4.test(s5)) {
+                peg$currPos++;
+              } else {
+                s5 = peg$FAILED;
+                if (peg$silentFails === 0) {
+                  peg$fail(peg$e17);
+                }
+              }
+              if (s5 !== peg$FAILED) {
+                while (s5 !== peg$FAILED) {
+                  s4.push(s5);
+                  s5 = input.charAt(peg$currPos);
+                  if (peg$r4.test(s5)) {
+                    peg$currPos++;
+                  } else {
+                    s5 = peg$FAILED;
+                    if (peg$silentFails === 0) {
+                      peg$fail(peg$e17);
+                    }
+                  }
+                }
+              } else {
+                s4 = peg$FAILED;
+              }
+              if (s4 !== peg$FAILED) {
+                s3 = [s3, s4];
+                s2 = s3;
+              } else {
+                peg$currPos = s2;
+                s2 = peg$FAILED;
+              }
+            } else {
+              peg$currPos = s2;
+              s2 = peg$FAILED;
+            }
+          }
+        }
+      }
+    }
+    if (s2 !== peg$FAILED) {
+      s3 = input.charAt(peg$currPos);
+      if (peg$r5.test(s3)) {
+        peg$currPos++;
+      } else {
+        s3 = peg$FAILED;
+        if (peg$silentFails === 0) {
+          peg$fail(peg$e18);
+        }
+      }
+      if (s3 === peg$FAILED) {
+        s3 = null;
+      }
+      s2 = [s2, s3];
+      s1 = s2;
+    } else {
+      peg$currPos = s1;
+      s1 = peg$FAILED;
+    }
+    if (s1 !== peg$FAILED) {
+      s0 = input.substring(s0, peg$currPos);
+    } else {
+      s0 = s1;
+    }
+    peg$silentFails--;
+    if (s0 === peg$FAILED) {
+      s1 = peg$FAILED;
+      if (peg$silentFails === 0) {
+        peg$fail(peg$e12);
+      }
+    }
+    return s0;
+  }
+  function peg$parsesuffixAnnotation() {
+    var s0, s1, s2;
+    peg$silentFails++;
+    s0 = peg$currPos;
+    s1 = [];
+    s2 = input.charAt(peg$currPos);
+    if (peg$r6.test(s2)) {
+      peg$currPos++;
+    } else {
+      s2 = peg$FAILED;
+      if (peg$silentFails === 0) {
+        peg$fail(peg$e20);
+      }
+    }
+    while (s2 !== peg$FAILED) {
+      s1.push(s2);
+      if (s1.length >= 2) {
+        s2 = peg$FAILED;
+      } else {
+        s2 = input.charAt(peg$currPos);
+        if (peg$r6.test(s2)) {
+          peg$currPos++;
+        } else {
+          s2 = peg$FAILED;
+          if (peg$silentFails === 0) {
+            peg$fail(peg$e20);
+          }
+        }
+      }
+    }
+    if (s1.length < 1) {
+      peg$currPos = s0;
+      s0 = peg$FAILED;
+    } else {
+      s0 = s1;
+    }
+    peg$silentFails--;
+    if (s0 === peg$FAILED) {
+      s1 = peg$FAILED;
+      if (peg$silentFails === 0) {
+        peg$fail(peg$e19);
+      }
+    }
+    return s0;
+  }
+  function peg$parsenag() {
+    var s0, s2, s3, s4, s5;
+    peg$silentFails++;
+    s0 = peg$currPos;
+    peg$parse_();
+    if (input.charCodeAt(peg$currPos) === 36) {
+      s2 = peg$c8;
+      peg$currPos++;
+    } else {
+      s2 = peg$FAILED;
+      if (peg$silentFails === 0) {
+        peg$fail(peg$e22);
+      }
+    }
+    if (s2 !== peg$FAILED) {
+      s3 = peg$currPos;
+      s4 = [];
+      s5 = input.charAt(peg$currPos);
+      if (peg$r2.test(s5)) {
+        peg$currPos++;
+      } else {
+        s5 = peg$FAILED;
+        if (peg$silentFails === 0) {
+          peg$fail(peg$e9);
+        }
+      }
+      if (s5 !== peg$FAILED) {
+        while (s5 !== peg$FAILED) {
+          s4.push(s5);
+          s5 = input.charAt(peg$currPos);
+          if (peg$r2.test(s5)) {
+            peg$currPos++;
+          } else {
+            s5 = peg$FAILED;
+            if (peg$silentFails === 0) {
+              peg$fail(peg$e9);
+            }
+          }
+        }
+      } else {
+        s4 = peg$FAILED;
+      }
+      if (s4 !== peg$FAILED) {
+        s3 = input.substring(s3, peg$currPos);
+      } else {
+        s3 = s4;
+      }
+      if (s3 !== peg$FAILED) {
+        s0 = peg$f6(s3);
+      } else {
+        peg$currPos = s0;
+        s0 = peg$FAILED;
+      }
+    } else {
+      peg$currPos = s0;
+      s0 = peg$FAILED;
+    }
+    peg$silentFails--;
+    if (s0 === peg$FAILED) {
+      if (peg$silentFails === 0) {
+        peg$fail(peg$e21);
+      }
+    }
+    return s0;
+  }
+  function peg$parsecomment() {
+    var s0;
+    s0 = peg$parsebraceComment();
+    if (s0 === peg$FAILED) {
+      s0 = peg$parserestOfLineComment();
+    }
+    return s0;
+  }
+  function peg$parsebraceComment() {
+    var s0, s1, s2, s3, s4;
+    peg$silentFails++;
+    s0 = peg$currPos;
+    if (input.charCodeAt(peg$currPos) === 123) {
+      s1 = peg$c9;
+      peg$currPos++;
+    } else {
+      s1 = peg$FAILED;
+      if (peg$silentFails === 0) {
+        peg$fail(peg$e24);
+      }
+    }
+    if (s1 !== peg$FAILED) {
+      s2 = peg$currPos;
+      s3 = [];
+      s4 = input.charAt(peg$currPos);
+      if (peg$r7.test(s4)) {
+        peg$currPos++;
+      } else {
+        s4 = peg$FAILED;
+        if (peg$silentFails === 0) {
+          peg$fail(peg$e25);
+        }
+      }
+      while (s4 !== peg$FAILED) {
+        s3.push(s4);
+        s4 = input.charAt(peg$currPos);
+        if (peg$r7.test(s4)) {
+          peg$currPos++;
+        } else {
+          s4 = peg$FAILED;
+          if (peg$silentFails === 0) {
+            peg$fail(peg$e25);
+          }
+        }
+      }
+      s2 = input.substring(s2, peg$currPos);
+      if (input.charCodeAt(peg$currPos) === 125) {
+        s3 = peg$c10;
+        peg$currPos++;
+      } else {
+        s3 = peg$FAILED;
+        if (peg$silentFails === 0) {
+          peg$fail(peg$e26);
+        }
+      }
+      if (s3 !== peg$FAILED) {
+        s0 = peg$f7(s2);
+      } else {
+        peg$currPos = s0;
+        s0 = peg$FAILED;
+      }
+    } else {
+      peg$currPos = s0;
+      s0 = peg$FAILED;
+    }
+    peg$silentFails--;
+    if (s0 === peg$FAILED) {
+      s1 = peg$FAILED;
+      if (peg$silentFails === 0) {
+        peg$fail(peg$e23);
+      }
+    }
+    return s0;
+  }
+  function peg$parserestOfLineComment() {
+    var s0, s1, s2, s3, s4;
+    peg$silentFails++;
+    s0 = peg$currPos;
+    if (input.charCodeAt(peg$currPos) === 59) {
+      s1 = peg$c11;
+      peg$currPos++;
+    } else {
+      s1 = peg$FAILED;
+      if (peg$silentFails === 0) {
+        peg$fail(peg$e28);
+      }
+    }
+    if (s1 !== peg$FAILED) {
+      s2 = peg$currPos;
+      s3 = [];
+      s4 = input.charAt(peg$currPos);
+      if (peg$r8.test(s4)) {
+        peg$currPos++;
+      } else {
+        s4 = peg$FAILED;
+        if (peg$silentFails === 0) {
+          peg$fail(peg$e29);
+        }
+      }
+      while (s4 !== peg$FAILED) {
+        s3.push(s4);
+        s4 = input.charAt(peg$currPos);
+        if (peg$r8.test(s4)) {
+          peg$currPos++;
+        } else {
+          s4 = peg$FAILED;
+          if (peg$silentFails === 0) {
+            peg$fail(peg$e29);
+          }
+        }
+      }
+      s2 = input.substring(s2, peg$currPos);
+      s0 = peg$f8(s2);
+    } else {
+      peg$currPos = s0;
+      s0 = peg$FAILED;
+    }
+    peg$silentFails--;
+    if (s0 === peg$FAILED) {
+      s1 = peg$FAILED;
+      if (peg$silentFails === 0) {
+        peg$fail(peg$e27);
+      }
+    }
+    return s0;
+  }
+  function peg$parsevariation() {
+    var s0, s2, s3, s5;
+    peg$silentFails++;
+    s0 = peg$currPos;
+    peg$parse_();
+    if (input.charCodeAt(peg$currPos) === 40) {
+      s2 = peg$c12;
+      peg$currPos++;
+    } else {
+      s2 = peg$FAILED;
+      if (peg$silentFails === 0) {
+        peg$fail(peg$e31);
+      }
+    }
+    if (s2 !== peg$FAILED) {
+      s3 = peg$parseline();
+      if (s3 !== peg$FAILED) {
+        peg$parse_();
+        if (input.charCodeAt(peg$currPos) === 41) {
+          s5 = peg$c13;
+          peg$currPos++;
+        } else {
+          s5 = peg$FAILED;
+          if (peg$silentFails === 0) {
+            peg$fail(peg$e32);
+          }
+        }
+        if (s5 !== peg$FAILED) {
+          s0 = peg$f9(s3);
+        } else {
+          peg$currPos = s0;
+          s0 = peg$FAILED;
+        }
+      } else {
+        peg$currPos = s0;
+        s0 = peg$FAILED;
+      }
+    } else {
+      peg$currPos = s0;
+      s0 = peg$FAILED;
+    }
+    peg$silentFails--;
+    if (s0 === peg$FAILED) {
+      if (peg$silentFails === 0) {
+        peg$fail(peg$e30);
+      }
+    }
+    return s0;
+  }
+  function peg$parsegameTerminationMarker() {
+    var s0, s1, s3;
+    peg$silentFails++;
+    s0 = peg$currPos;
+    if (input.substr(peg$currPos, 3) === peg$c14) {
+      s1 = peg$c14;
+      peg$currPos += 3;
+    } else {
+      s1 = peg$FAILED;
+      if (peg$silentFails === 0) {
+        peg$fail(peg$e34);
+      }
+    }
+    if (s1 === peg$FAILED) {
+      if (input.substr(peg$currPos, 3) === peg$c15) {
+        s1 = peg$c15;
+        peg$currPos += 3;
+      } else {
+        s1 = peg$FAILED;
+        if (peg$silentFails === 0) {
+          peg$fail(peg$e35);
+        }
+      }
+      if (s1 === peg$FAILED) {
+        if (input.substr(peg$currPos, 7) === peg$c16) {
+          s1 = peg$c16;
+          peg$currPos += 7;
+        } else {
+          s1 = peg$FAILED;
+          if (peg$silentFails === 0) {
+            peg$fail(peg$e36);
+          }
+        }
+        if (s1 === peg$FAILED) {
+          if (input.charCodeAt(peg$currPos) === 42) {
+            s1 = peg$c17;
+            peg$currPos++;
+          } else {
+            s1 = peg$FAILED;
+            if (peg$silentFails === 0) {
+              peg$fail(peg$e37);
+            }
+          }
+        }
+      }
+    }
+    if (s1 !== peg$FAILED) {
+      peg$parse_();
+      s3 = peg$parsecomment();
+      if (s3 === peg$FAILED) {
+        s3 = null;
+      }
+      s0 = peg$f10(s1, s3);
+    } else {
+      peg$currPos = s0;
+      s0 = peg$FAILED;
+    }
+    peg$silentFails--;
+    if (s0 === peg$FAILED) {
+      s1 = peg$FAILED;
+      if (peg$silentFails === 0) {
+        peg$fail(peg$e33);
+      }
+    }
+    return s0;
+  }
+  function peg$parse_() {
+    var s0, s1;
+    peg$silentFails++;
+    s0 = [];
+    s1 = input.charAt(peg$currPos);
+    if (peg$r9.test(s1)) {
+      peg$currPos++;
+    } else {
+      s1 = peg$FAILED;
+      if (peg$silentFails === 0) {
+        peg$fail(peg$e39);
+      }
+    }
+    while (s1 !== peg$FAILED) {
+      s0.push(s1);
+      s1 = input.charAt(peg$currPos);
+      if (peg$r9.test(s1)) {
+        peg$currPos++;
+      } else {
+        s1 = peg$FAILED;
+        if (peg$silentFails === 0) {
+          peg$fail(peg$e39);
+        }
+      }
+    }
+    peg$silentFails--;
+    s1 = peg$FAILED;
+    if (peg$silentFails === 0) {
+      peg$fail(peg$e38);
+    }
+    return s0;
+  }
+  peg$result = peg$startRuleFunction();
+  if (options.peg$library) {
+    return (
+      /** @type {any} */
+      {
+        peg$result,
+        peg$currPos,
+        peg$FAILED,
+        peg$maxFailExpected,
+        peg$maxFailPos
+      }
+    );
+  }
+  if (peg$result !== peg$FAILED && peg$currPos === input.length) {
+    return peg$result;
+  } else {
+    if (peg$result !== peg$FAILED && peg$currPos < input.length) {
+      peg$fail(peg$endExpectation());
+    }
+    throw peg$buildStructuredError(
+      peg$maxFailExpected,
+      peg$maxFailPos < input.length ? input.charAt(peg$maxFailPos) : null,
+      peg$maxFailPos < input.length ? peg$computeLocation(peg$maxFailPos, peg$maxFailPos + 1) : peg$computeLocation(peg$maxFailPos, peg$maxFailPos)
+    );
+  }
+}
+var MASK64 = 0xffffffffffffffffn;
+function rotl(x, k) {
+  return (x << k | x >> 64n - k) & 0xffffffffffffffffn;
+}
+function wrappingMul(x, y) {
+  return x * y & MASK64;
+}
+function xoroshiro128(state) {
+  return function() {
+    let s0 = BigInt(state & MASK64);
+    let s1 = BigInt(state >> 64n & MASK64);
+    const result = wrappingMul(rotl(wrappingMul(s0, 5n), 7n), 9n);
+    s1 ^= s0;
+    s0 = (rotl(s0, 24n) ^ s1 ^ s1 << 16n) & MASK64;
+    s1 = rotl(s1, 37n);
+    state = s1 << 64n | s0;
+    return result;
+  };
+}
+var rand = xoroshiro128(0xa187eb39cdcaed8f31c4b365b102e01en);
+var PIECE_KEYS = Array.from({ length: 2 }, () => Array.from({ length: 6 }, () => Array.from({ length: 128 }, () => rand())));
+var EP_KEYS = Array.from({ length: 8 }, () => rand());
+var CASTLING_KEYS = Array.from({ length: 16 }, () => rand());
+var SIDE_KEY = rand();
+var WHITE = "w";
+var BLACK = "b";
+var PAWN = "p";
+var KNIGHT = "n";
+var BISHOP = "b";
+var ROOK = "r";
+var QUEEN = "q";
+var KING = "k";
+var DEFAULT_POSITION = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1";
+var Move = class {
+  color;
+  from;
+  to;
+  piece;
+  captured;
+  promotion;
+  /**
+   * @deprecated This field is deprecated and will be removed in version 2.0.0.
+   * Please use move descriptor functions instead: `isCapture`, `isPromotion`,
+   * `isEnPassant`, `isKingsideCastle`, `isQueensideCastle`, `isCastle`, and
+   * `isBigPawn`
+   */
+  flags;
+  san;
+  lan;
+  before;
+  after;
+  constructor(chess2, internal) {
+    const { color, piece, from, to, flags, captured, promotion } = internal;
+    const fromAlgebraic = algebraic(from);
+    const toAlgebraic = algebraic(to);
+    this.color = color;
+    this.piece = piece;
+    this.from = fromAlgebraic;
+    this.to = toAlgebraic;
+    this.san = chess2["_moveToSan"](internal, chess2["_moves"]({ legal: true }));
+    this.lan = fromAlgebraic + toAlgebraic;
+    this.before = chess2.fen();
+    chess2["_makeMove"](internal);
+    this.after = chess2.fen();
+    chess2["_undoMove"]();
+    this.flags = "";
+    for (const flag in BITS) {
+      if (BITS[flag] & flags) {
+        this.flags += FLAGS[flag];
+      }
+    }
+    if (captured) {
+      this.captured = captured;
+    }
+    if (promotion) {
+      this.promotion = promotion;
+      this.lan += promotion;
+    }
+  }
+  isCapture() {
+    return this.flags.indexOf(FLAGS["CAPTURE"]) > -1;
+  }
+  isPromotion() {
+    return this.flags.indexOf(FLAGS["PROMOTION"]) > -1;
+  }
+  isEnPassant() {
+    return this.flags.indexOf(FLAGS["EP_CAPTURE"]) > -1;
+  }
+  isKingsideCastle() {
+    return this.flags.indexOf(FLAGS["KSIDE_CASTLE"]) > -1;
+  }
+  isQueensideCastle() {
+    return this.flags.indexOf(FLAGS["QSIDE_CASTLE"]) > -1;
+  }
+  isBigPawn() {
+    return this.flags.indexOf(FLAGS["BIG_PAWN"]) > -1;
+  }
+};
+var EMPTY = -1;
+var FLAGS = {
+  NORMAL: "n",
+  CAPTURE: "c",
+  BIG_PAWN: "b",
+  EP_CAPTURE: "e",
+  PROMOTION: "p",
+  KSIDE_CASTLE: "k",
+  QSIDE_CASTLE: "q",
+  NULL_MOVE: "-"
+};
+var BITS = {
+  NORMAL: 1,
+  CAPTURE: 2,
+  BIG_PAWN: 4,
+  EP_CAPTURE: 8,
+  PROMOTION: 16,
+  KSIDE_CASTLE: 32,
+  QSIDE_CASTLE: 64,
+  NULL_MOVE: 128
+};
+var SEVEN_TAG_ROSTER = {
+  Event: "?",
+  Site: "?",
+  Date: "????.??.??",
+  Round: "?",
+  White: "?",
+  Black: "?",
+  Result: "*"
+};
+var SUPLEMENTAL_TAGS = {
+  WhiteTitle: null,
+  BlackTitle: null,
+  WhiteElo: null,
+  BlackElo: null,
+  WhiteUSCF: null,
+  BlackUSCF: null,
+  WhiteNA: null,
+  BlackNA: null,
+  WhiteType: null,
+  BlackType: null,
+  EventDate: null,
+  EventSponsor: null,
+  Section: null,
+  Stage: null,
+  Board: null,
+  Opening: null,
+  Variation: null,
+  SubVariation: null,
+  ECO: null,
+  NIC: null,
+  Time: null,
+  UTCTime: null,
+  UTCDate: null,
+  TimeControl: null,
+  SetUp: null,
+  FEN: null,
+  Termination: null,
+  Annotator: null,
+  Mode: null,
+  PlyCount: null
+};
+var HEADER_TEMPLATE = {
+  ...SEVEN_TAG_ROSTER,
+  ...SUPLEMENTAL_TAGS
+};
+var Ox88 = {
+  a8: 0,
+  b8: 1,
+  c8: 2,
+  d8: 3,
+  e8: 4,
+  f8: 5,
+  g8: 6,
+  h8: 7,
+  a7: 16,
+  b7: 17,
+  c7: 18,
+  d7: 19,
+  e7: 20,
+  f7: 21,
+  g7: 22,
+  h7: 23,
+  a6: 32,
+  b6: 33,
+  c6: 34,
+  d6: 35,
+  e6: 36,
+  f6: 37,
+  g6: 38,
+  h6: 39,
+  a5: 48,
+  b5: 49,
+  c5: 50,
+  d5: 51,
+  e5: 52,
+  f5: 53,
+  g5: 54,
+  h5: 55,
+  a4: 64,
+  b4: 65,
+  c4: 66,
+  d4: 67,
+  e4: 68,
+  f4: 69,
+  g4: 70,
+  h4: 71,
+  a3: 80,
+  b3: 81,
+  c3: 82,
+  d3: 83,
+  e3: 84,
+  f3: 85,
+  g3: 86,
+  h3: 87,
+  a2: 96,
+  b2: 97,
+  c2: 98,
+  d2: 99,
+  e2: 100,
+  f2: 101,
+  g2: 102,
+  h2: 103,
+  a1: 112,
+  b1: 113,
+  c1: 114,
+  d1: 115,
+  e1: 116,
+  f1: 117,
+  g1: 118,
+  h1: 119
+};
+var PAWN_OFFSETS = {
+  b: [16, 32, 17, 15],
+  w: [-16, -32, -17, -15]
+};
+var PIECE_OFFSETS = {
+  n: [-18, -33, -31, -14, 18, 33, 31, 14],
+  b: [-17, -15, 17, 15],
+  r: [-16, 1, 16, -1],
+  q: [-17, -16, -15, 1, 17, 16, 15, -1],
+  k: [-17, -16, -15, 1, 17, 16, 15, -1]
+};
+var ATTACKS = [
+  20,
+  0,
+  0,
+  0,
+  0,
+  0,
+  0,
+  24,
+  0,
+  0,
+  0,
+  0,
+  0,
+  0,
+  20,
+  0,
+  0,
+  20,
+  0,
+  0,
+  0,
+  0,
+  0,
+  24,
+  0,
+  0,
+  0,
+  0,
+  0,
+  20,
+  0,
+  0,
+  0,
+  0,
+  20,
+  0,
+  0,
+  0,
+  0,
+  24,
+  0,
+  0,
+  0,
+  0,
+  20,
+  0,
+  0,
+  0,
+  0,
+  0,
+  0,
+  20,
+  0,
+  0,
+  0,
+  24,
+  0,
+  0,
+  0,
+  20,
+  0,
+  0,
+  0,
+  0,
+  0,
+  0,
+  0,
+  0,
+  20,
+  0,
+  0,
+  24,
+  0,
+  0,
+  20,
+  0,
+  0,
+  0,
+  0,
+  0,
+  0,
+  0,
+  0,
+  0,
+  0,
+  20,
+  2,
+  24,
+  2,
+  20,
+  0,
+  0,
+  0,
+  0,
+  0,
+  0,
+  0,
+  0,
+  0,
+  0,
+  0,
+  2,
+  53,
+  56,
+  53,
+  2,
+  0,
+  0,
+  0,
+  0,
+  0,
+  0,
+  24,
+  24,
+  24,
+  24,
+  24,
+  24,
+  56,
+  0,
+  56,
+  24,
+  24,
+  24,
+  24,
+  24,
+  24,
+  0,
+  0,
+  0,
+  0,
+  0,
+  0,
+  2,
+  53,
+  56,
+  53,
+  2,
+  0,
+  0,
+  0,
+  0,
+  0,
+  0,
+  0,
+  0,
+  0,
+  0,
+  0,
+  20,
+  2,
+  24,
+  2,
+  20,
+  0,
+  0,
+  0,
+  0,
+  0,
+  0,
+  0,
+  0,
+  0,
+  0,
+  20,
+  0,
+  0,
+  24,
+  0,
+  0,
+  20,
+  0,
+  0,
+  0,
+  0,
+  0,
+  0,
+  0,
+  0,
+  20,
+  0,
+  0,
+  0,
+  24,
+  0,
+  0,
+  0,
+  20,
+  0,
+  0,
+  0,
+  0,
+  0,
+  0,
+  20,
+  0,
+  0,
+  0,
+  0,
+  24,
+  0,
+  0,
+  0,
+  0,
+  20,
+  0,
+  0,
+  0,
+  0,
+  20,
+  0,
+  0,
+  0,
+  0,
+  0,
+  24,
+  0,
+  0,
+  0,
+  0,
+  0,
+  20,
+  0,
+  0,
+  20,
+  0,
+  0,
+  0,
+  0,
+  0,
+  0,
+  24,
+  0,
+  0,
+  0,
+  0,
+  0,
+  0,
+  20
+];
+var RAYS = [
+  17,
+  0,
+  0,
+  0,
+  0,
+  0,
+  0,
+  16,
+  0,
+  0,
+  0,
+  0,
+  0,
+  0,
+  15,
+  0,
+  0,
+  17,
+  0,
+  0,
+  0,
+  0,
+  0,
+  16,
+  0,
+  0,
+  0,
+  0,
+  0,
+  15,
+  0,
+  0,
+  0,
+  0,
+  17,
+  0,
+  0,
+  0,
+  0,
+  16,
+  0,
+  0,
+  0,
+  0,
+  15,
+  0,
+  0,
+  0,
+  0,
+  0,
+  0,
+  17,
+  0,
+  0,
+  0,
+  16,
+  0,
+  0,
+  0,
+  15,
+  0,
+  0,
+  0,
+  0,
+  0,
+  0,
+  0,
+  0,
+  17,
+  0,
+  0,
+  16,
+  0,
+  0,
+  15,
+  0,
+  0,
+  0,
+  0,
+  0,
+  0,
+  0,
+  0,
+  0,
+  0,
+  17,
+  0,
+  16,
+  0,
+  15,
+  0,
+  0,
+  0,
+  0,
+  0,
+  0,
+  0,
+  0,
+  0,
+  0,
+  0,
+  0,
+  17,
+  16,
+  15,
+  0,
+  0,
+  0,
+  0,
+  0,
+  0,
+  0,
+  1,
+  1,
+  1,
+  1,
+  1,
+  1,
+  1,
+  0,
+  -1,
+  -1,
+  -1,
+  -1,
+  -1,
+  -1,
+  -1,
+  0,
+  0,
+  0,
+  0,
+  0,
+  0,
+  0,
+  -15,
+  -16,
+  -17,
+  0,
+  0,
+  0,
+  0,
+  0,
+  0,
+  0,
+  0,
+  0,
+  0,
+  0,
+  0,
+  -15,
+  0,
+  -16,
+  0,
+  -17,
+  0,
+  0,
+  0,
+  0,
+  0,
+  0,
+  0,
+  0,
+  0,
+  0,
+  -15,
+  0,
+  0,
+  -16,
+  0,
+  0,
+  -17,
+  0,
+  0,
+  0,
+  0,
+  0,
+  0,
+  0,
+  0,
+  -15,
+  0,
+  0,
+  0,
+  -16,
+  0,
+  0,
+  0,
+  -17,
+  0,
+  0,
+  0,
+  0,
+  0,
+  0,
+  -15,
+  0,
+  0,
+  0,
+  0,
+  -16,
+  0,
+  0,
+  0,
+  0,
+  -17,
+  0,
+  0,
+  0,
+  0,
+  -15,
+  0,
+  0,
+  0,
+  0,
+  0,
+  -16,
+  0,
+  0,
+  0,
+  0,
+  0,
+  -17,
+  0,
+  0,
+  -15,
+  0,
+  0,
+  0,
+  0,
+  0,
+  0,
+  -16,
+  0,
+  0,
+  0,
+  0,
+  0,
+  0,
+  -17
+];
+var PIECE_MASKS = { p: 1, n: 2, b: 4, r: 8, q: 16, k: 32 };
+var SYMBOLS = "pnbrqkPNBRQK";
+var PROMOTIONS = [KNIGHT, BISHOP, ROOK, QUEEN];
+var RANK_1 = 7;
+var RANK_2 = 6;
+var RANK_7 = 1;
+var RANK_8 = 0;
+var SIDES = {
+  [KING]: BITS.KSIDE_CASTLE,
+  [QUEEN]: BITS.QSIDE_CASTLE
+};
+var ROOKS = {
+  w: [
+    { square: Ox88.a1, flag: BITS.QSIDE_CASTLE },
+    { square: Ox88.h1, flag: BITS.KSIDE_CASTLE }
+  ],
+  b: [
+    { square: Ox88.a8, flag: BITS.QSIDE_CASTLE },
+    { square: Ox88.h8, flag: BITS.KSIDE_CASTLE }
+  ]
+};
+var SECOND_RANK = { b: RANK_7, w: RANK_2 };
+var SAN_NULLMOVE = "--";
+function rank(square) {
+  return square >> 4;
+}
+function file(square) {
+  return square & 15;
+}
+function isDigit(c) {
+  return "0123456789".indexOf(c) !== -1;
+}
+function algebraic(square) {
+  const f = file(square);
+  const r = rank(square);
+  return "abcdefgh".substring(f, f + 1) + "87654321".substring(r, r + 1);
+}
+function swapColor(color) {
+  return color === WHITE ? BLACK : WHITE;
+}
+function validateFen(fen) {
+  const tokens = fen.split(/\s+/);
+  if (tokens.length !== 6) {
+    return {
+      ok: false,
+      error: "Invalid FEN: must contain six space-delimited fields"
+    };
+  }
+  const moveNumber = parseInt(tokens[5], 10);
+  if (isNaN(moveNumber) || moveNumber <= 0) {
+    return {
+      ok: false,
+      error: "Invalid FEN: move number must be a positive integer"
+    };
+  }
+  const halfMoves = parseInt(tokens[4], 10);
+  if (isNaN(halfMoves) || halfMoves < 0) {
+    return {
+      ok: false,
+      error: "Invalid FEN: half move counter number must be a non-negative integer"
+    };
+  }
+  if (!/^(-|[abcdefgh][36])$/.test(tokens[3])) {
+    return { ok: false, error: "Invalid FEN: en-passant square is invalid" };
+  }
+  if (/[^kKqQ-]/.test(tokens[2])) {
+    return { ok: false, error: "Invalid FEN: castling availability is invalid" };
+  }
+  if (!/^(w|b)$/.test(tokens[1])) {
+    return { ok: false, error: "Invalid FEN: side-to-move is invalid" };
+  }
+  const rows = tokens[0].split("/");
+  if (rows.length !== 8) {
+    return {
+      ok: false,
+      error: "Invalid FEN: piece data does not contain 8 '/'-delimited rows"
+    };
+  }
+  for (let i = 0; i < rows.length; i++) {
+    let sumFields = 0;
+    let previousWasNumber = false;
+    for (let k = 0; k < rows[i].length; k++) {
+      if (isDigit(rows[i][k])) {
+        if (previousWasNumber) {
+          return {
+            ok: false,
+            error: "Invalid FEN: piece data is invalid (consecutive number)"
+          };
+        }
+        sumFields += parseInt(rows[i][k], 10);
+        previousWasNumber = true;
+      } else {
+        if (!/^[prnbqkPRNBQK]$/.test(rows[i][k])) {
+          return {
+            ok: false,
+            error: "Invalid FEN: piece data is invalid (invalid piece)"
+          };
+        }
+        sumFields += 1;
+        previousWasNumber = false;
+      }
+    }
+    if (sumFields !== 8) {
+      return {
+        ok: false,
+        error: "Invalid FEN: piece data is invalid (too many squares in rank)"
+      };
+    }
+  }
+  if (tokens[3][1] == "3" && tokens[1] == "w" || tokens[3][1] == "6" && tokens[1] == "b") {
+    return { ok: false, error: "Invalid FEN: illegal en-passant square" };
+  }
+  const kings = [
+    { color: "white", regex: /K/g },
+    { color: "black", regex: /k/g }
+  ];
+  for (const { color, regex } of kings) {
+    if (!regex.test(tokens[0])) {
+      return { ok: false, error: `Invalid FEN: missing ${color} king` };
+    }
+    if ((tokens[0].match(regex) || []).length > 1) {
+      return { ok: false, error: `Invalid FEN: too many ${color} kings` };
+    }
+  }
+  if (Array.from(rows[0] + rows[7]).some((char) => char.toUpperCase() === "P")) {
+    return {
+      ok: false,
+      error: "Invalid FEN: some pawns are on the edge rows"
+    };
+  }
+  return { ok: true };
+}
+function getDisambiguator(move, moves) {
+  const from = move.from;
+  const to = move.to;
+  const piece = move.piece;
+  let ambiguities = 0;
+  let sameRank = 0;
+  let sameFile = 0;
+  for (let i = 0, len = moves.length; i < len; i++) {
+    const ambigFrom = moves[i].from;
+    const ambigTo = moves[i].to;
+    const ambigPiece = moves[i].piece;
+    if (piece === ambigPiece && from !== ambigFrom && to === ambigTo) {
+      ambiguities++;
+      if (rank(from) === rank(ambigFrom)) {
+        sameRank++;
+      }
+      if (file(from) === file(ambigFrom)) {
+        sameFile++;
+      }
+    }
+  }
+  if (ambiguities > 0) {
+    if (sameRank > 0 && sameFile > 0) {
+      return algebraic(from);
+    } else if (sameFile > 0) {
+      return algebraic(from).charAt(1);
+    } else {
+      return algebraic(from).charAt(0);
+    }
+  }
+  return "";
+}
+function addMove(moves, color, from, to, piece, captured = void 0, flags = BITS.NORMAL) {
+  const r = rank(to);
+  if (piece === PAWN && (r === RANK_1 || r === RANK_8)) {
+    for (let i = 0; i < PROMOTIONS.length; i++) {
+      const promotion = PROMOTIONS[i];
+      moves.push({
+        color,
+        from,
+        to,
+        piece,
+        captured,
+        promotion,
+        flags: flags | BITS.PROMOTION
+      });
+    }
+  } else {
+    moves.push({
+      color,
+      from,
+      to,
+      piece,
+      captured,
+      flags
+    });
+  }
+}
+function inferPieceType(san) {
+  let pieceType = san.charAt(0);
+  if (pieceType >= "a" && pieceType <= "h") {
+    const matches = san.match(/[a-h]\d.*[a-h]\d/);
+    if (matches) {
+      return void 0;
+    }
+    return PAWN;
+  }
+  pieceType = pieceType.toLowerCase();
+  if (pieceType === "o") {
+    return KING;
+  }
+  return pieceType;
+}
+function strippedSan(move) {
+  return move.replace(/=/, "").replace(/[+#]?[?!]*$/, "");
+}
+var Chess = class {
+  _board = new Array(128);
+  _turn = WHITE;
+  _header = {};
+  _kings = { w: EMPTY, b: EMPTY };
+  _epSquare = -1;
+  _halfMoves = 0;
+  _moveNumber = 0;
+  _history = [];
+  _comments = {};
+  _castling = { w: 0, b: 0 };
+  _hash = 0n;
+  // tracks number of times a position has been seen for repetition checking
+  _positionCount = /* @__PURE__ */ new Map();
+  constructor(fen = DEFAULT_POSITION, { skipValidation = false } = {}) {
+    this.load(fen, { skipValidation });
+  }
+  clear({ preserveHeaders = false } = {}) {
+    this._board = new Array(128);
+    this._kings = { w: EMPTY, b: EMPTY };
+    this._turn = WHITE;
+    this._castling = { w: 0, b: 0 };
+    this._epSquare = EMPTY;
+    this._halfMoves = 0;
+    this._moveNumber = 1;
+    this._history = [];
+    this._comments = {};
+    this._header = preserveHeaders ? this._header : { ...HEADER_TEMPLATE };
+    this._hash = this._computeHash();
+    this._positionCount = /* @__PURE__ */ new Map();
+    this._header["SetUp"] = null;
+    this._header["FEN"] = null;
+  }
+  load(fen, { skipValidation = false, preserveHeaders = false } = {}) {
+    let tokens = fen.split(/\s+/);
+    if (tokens.length >= 2 && tokens.length < 6) {
+      const adjustments = ["-", "-", "0", "1"];
+      fen = tokens.concat(adjustments.slice(-(6 - tokens.length))).join(" ");
+    }
+    tokens = fen.split(/\s+/);
+    if (!skipValidation) {
+      const { ok, error } = validateFen(fen);
+      if (!ok) {
+        throw new Error(error);
+      }
+    }
+    const position = tokens[0];
+    let square = 0;
+    this.clear({ preserveHeaders });
+    for (let i = 0; i < position.length; i++) {
+      const piece = position.charAt(i);
+      if (piece === "/") {
+        square += 8;
+      } else if (isDigit(piece)) {
+        square += parseInt(piece, 10);
+      } else {
+        const color = piece < "a" ? WHITE : BLACK;
+        this._put({ type: piece.toLowerCase(), color }, algebraic(square));
+        square++;
+      }
+    }
+    this._turn = tokens[1];
+    if (tokens[2].indexOf("K") > -1) {
+      this._castling.w |= BITS.KSIDE_CASTLE;
+    }
+    if (tokens[2].indexOf("Q") > -1) {
+      this._castling.w |= BITS.QSIDE_CASTLE;
+    }
+    if (tokens[2].indexOf("k") > -1) {
+      this._castling.b |= BITS.KSIDE_CASTLE;
+    }
+    if (tokens[2].indexOf("q") > -1) {
+      this._castling.b |= BITS.QSIDE_CASTLE;
+    }
+    this._epSquare = tokens[3] === "-" ? EMPTY : Ox88[tokens[3]];
+    this._halfMoves = parseInt(tokens[4], 10);
+    this._moveNumber = parseInt(tokens[5], 10);
+    this._hash = this._computeHash();
+    this._updateSetup(fen);
+    this._incPositionCount();
+  }
+  fen({ forceEnpassantSquare = false } = {}) {
+    let empty = 0;
+    let fen = "";
+    for (let i = Ox88.a8; i <= Ox88.h1; i++) {
+      if (this._board[i]) {
+        if (empty > 0) {
+          fen += empty;
+          empty = 0;
+        }
+        const { color, type: piece } = this._board[i];
+        fen += color === WHITE ? piece.toUpperCase() : piece.toLowerCase();
+      } else {
+        empty++;
+      }
+      if (i + 1 & 136) {
+        if (empty > 0) {
+          fen += empty;
+        }
+        if (i !== Ox88.h1) {
+          fen += "/";
+        }
+        empty = 0;
+        i += 8;
+      }
+    }
+    let castling = "";
+    if (this._castling[WHITE] & BITS.KSIDE_CASTLE) {
+      castling += "K";
+    }
+    if (this._castling[WHITE] & BITS.QSIDE_CASTLE) {
+      castling += "Q";
+    }
+    if (this._castling[BLACK] & BITS.KSIDE_CASTLE) {
+      castling += "k";
+    }
+    if (this._castling[BLACK] & BITS.QSIDE_CASTLE) {
+      castling += "q";
+    }
+    castling = castling || "-";
+    let epSquare = "-";
+    if (this._epSquare !== EMPTY) {
+      if (forceEnpassantSquare) {
+        epSquare = algebraic(this._epSquare);
+      } else {
+        const bigPawnSquare = this._epSquare + (this._turn === WHITE ? 16 : -16);
+        const squares = [bigPawnSquare + 1, bigPawnSquare - 1];
+        for (const square of squares) {
+          if (square & 136) {
+            continue;
+          }
+          const color = this._turn;
+          if (this._board[square]?.color === color && this._board[square]?.type === PAWN) {
+            this._makeMove({
+              color,
+              from: square,
+              to: this._epSquare,
+              piece: PAWN,
+              captured: PAWN,
+              flags: BITS.EP_CAPTURE
+            });
+            const isLegal = !this._isKingAttacked(color);
+            this._undoMove();
+            if (isLegal) {
+              epSquare = algebraic(this._epSquare);
+              break;
+            }
+          }
+        }
+      }
+    }
+    return [
+      fen,
+      this._turn,
+      castling,
+      epSquare,
+      this._halfMoves,
+      this._moveNumber
+    ].join(" ");
+  }
+  _pieceKey(i) {
+    if (!this._board[i]) {
+      return 0n;
+    }
+    const { color, type } = this._board[i];
+    const colorIndex = {
+      w: 0,
+      b: 1
+    }[color];
+    const typeIndex = {
+      p: 0,
+      n: 1,
+      b: 2,
+      r: 3,
+      q: 4,
+      k: 5
+    }[type];
+    return PIECE_KEYS[colorIndex][typeIndex][i];
+  }
+  _epKey() {
+    return this._epSquare === EMPTY ? 0n : EP_KEYS[this._epSquare & 7];
+  }
+  _castlingKey() {
+    const index = this._castling.w >> 5 | this._castling.b >> 3;
+    return CASTLING_KEYS[index];
+  }
+  _computeHash() {
+    let hash = 0n;
+    for (let i = Ox88.a8; i <= Ox88.h1; i++) {
+      if (i & 136) {
+        i += 7;
+        continue;
+      }
+      if (this._board[i]) {
+        hash ^= this._pieceKey(i);
+      }
+    }
+    hash ^= this._epKey();
+    hash ^= this._castlingKey();
+    if (this._turn === "b") {
+      hash ^= SIDE_KEY;
+    }
+    return hash;
+  }
+  /*
+   * Called when the initial board setup is changed with put() or remove().
+   * modifies the SetUp and FEN properties of the header object. If the FEN
+   * is equal to the default position, the SetUp and FEN are deleted the setup
+   * is only updated if history.length is zero, ie moves haven't been made.
+   */
+  _updateSetup(fen) {
+    if (this._history.length > 0)
+      return;
+    if (fen !== DEFAULT_POSITION) {
+      this._header["SetUp"] = "1";
+      this._header["FEN"] = fen;
+    } else {
+      this._header["SetUp"] = null;
+      this._header["FEN"] = null;
+    }
+  }
+  reset() {
+    this.load(DEFAULT_POSITION);
+  }
+  get(square) {
+    return this._board[Ox88[square]];
+  }
+  findPiece(piece) {
+    const squares = [];
+    for (let i = Ox88.a8; i <= Ox88.h1; i++) {
+      if (i & 136) {
+        i += 7;
+        continue;
+      }
+      if (!this._board[i] || this._board[i]?.color !== piece.color) {
+        continue;
+      }
+      if (this._board[i].color === piece.color && this._board[i].type === piece.type) {
+        squares.push(algebraic(i));
+      }
+    }
+    return squares;
+  }
+  put({ type, color }, square) {
+    if (this._put({ type, color }, square)) {
+      this._updateCastlingRights();
+      this._updateEnPassantSquare();
+      this._updateSetup(this.fen());
+      return true;
+    }
+    return false;
+  }
+  _set(sq, piece) {
+    this._hash ^= this._pieceKey(sq);
+    this._board[sq] = piece;
+    this._hash ^= this._pieceKey(sq);
+  }
+  _put({ type, color }, square) {
+    if (SYMBOLS.indexOf(type.toLowerCase()) === -1) {
+      return false;
+    }
+    if (!(square in Ox88)) {
+      return false;
+    }
+    const sq = Ox88[square];
+    if (type == KING && !(this._kings[color] == EMPTY || this._kings[color] == sq)) {
+      return false;
+    }
+    const currentPieceOnSquare = this._board[sq];
+    if (currentPieceOnSquare && currentPieceOnSquare.type === KING) {
+      this._kings[currentPieceOnSquare.color] = EMPTY;
+    }
+    this._set(sq, { type, color });
+    if (type === KING) {
+      this._kings[color] = sq;
+    }
+    return true;
+  }
+  _clear(sq) {
+    this._hash ^= this._pieceKey(sq);
+    delete this._board[sq];
+  }
+  remove(square) {
+    const piece = this.get(square);
+    this._clear(Ox88[square]);
+    if (piece && piece.type === KING) {
+      this._kings[piece.color] = EMPTY;
+    }
+    this._updateCastlingRights();
+    this._updateEnPassantSquare();
+    this._updateSetup(this.fen());
+    return piece;
+  }
+  _updateCastlingRights() {
+    this._hash ^= this._castlingKey();
+    const whiteKingInPlace = this._board[Ox88.e1]?.type === KING && this._board[Ox88.e1]?.color === WHITE;
+    const blackKingInPlace = this._board[Ox88.e8]?.type === KING && this._board[Ox88.e8]?.color === BLACK;
+    if (!whiteKingInPlace || this._board[Ox88.a1]?.type !== ROOK || this._board[Ox88.a1]?.color !== WHITE) {
+      this._castling.w &= -65;
+    }
+    if (!whiteKingInPlace || this._board[Ox88.h1]?.type !== ROOK || this._board[Ox88.h1]?.color !== WHITE) {
+      this._castling.w &= -33;
+    }
+    if (!blackKingInPlace || this._board[Ox88.a8]?.type !== ROOK || this._board[Ox88.a8]?.color !== BLACK) {
+      this._castling.b &= -65;
+    }
+    if (!blackKingInPlace || this._board[Ox88.h8]?.type !== ROOK || this._board[Ox88.h8]?.color !== BLACK) {
+      this._castling.b &= -33;
+    }
+    this._hash ^= this._castlingKey();
+  }
+  _updateEnPassantSquare() {
+    if (this._epSquare === EMPTY) {
+      return;
+    }
+    const startSquare = this._epSquare + (this._turn === WHITE ? -16 : 16);
+    const currentSquare = this._epSquare + (this._turn === WHITE ? 16 : -16);
+    const attackers = [currentSquare + 1, currentSquare - 1];
+    if (this._board[startSquare] !== null || this._board[this._epSquare] !== null || this._board[currentSquare]?.color !== swapColor(this._turn) || this._board[currentSquare]?.type !== PAWN) {
+      this._hash ^= this._epKey();
+      this._epSquare = EMPTY;
+      return;
+    }
+    const canCapture = (square) => !(square & 136) && this._board[square]?.color === this._turn && this._board[square]?.type === PAWN;
+    if (!attackers.some(canCapture)) {
+      this._hash ^= this._epKey();
+      this._epSquare = EMPTY;
+    }
+  }
+  _attacked(color, square, verbose) {
+    const attackers = [];
+    for (let i = Ox88.a8; i <= Ox88.h1; i++) {
+      if (i & 136) {
+        i += 7;
+        continue;
+      }
+      if (this._board[i] === void 0 || this._board[i].color !== color) {
+        continue;
+      }
+      const piece = this._board[i];
+      const difference = i - square;
+      if (difference === 0) {
+        continue;
+      }
+      const index = difference + 119;
+      if (ATTACKS[index] & PIECE_MASKS[piece.type]) {
+        if (piece.type === PAWN) {
+          if (difference > 0 && piece.color === WHITE || difference <= 0 && piece.color === BLACK) {
+            if (!verbose) {
+              return true;
+            } else {
+              attackers.push(algebraic(i));
+            }
+          }
+          continue;
+        }
+        if (piece.type === "n" || piece.type === "k") {
+          if (!verbose) {
+            return true;
+          } else {
+            attackers.push(algebraic(i));
+            continue;
+          }
+        }
+        const offset = RAYS[index];
+        let j = i + offset;
+        let blocked = false;
+        while (j !== square) {
+          if (this._board[j] != null) {
+            blocked = true;
+            break;
+          }
+          j += offset;
+        }
+        if (!blocked) {
+          if (!verbose) {
+            return true;
+          } else {
+            attackers.push(algebraic(i));
+            continue;
+          }
+        }
+      }
+    }
+    if (verbose) {
+      return attackers;
+    } else {
+      return false;
+    }
+  }
+  attackers(square, attackedBy) {
+    if (!attackedBy) {
+      return this._attacked(this._turn, Ox88[square], true);
+    } else {
+      return this._attacked(attackedBy, Ox88[square], true);
+    }
+  }
+  _isKingAttacked(color) {
+    const square = this._kings[color];
+    return square === -1 ? false : this._attacked(swapColor(color), square);
+  }
+  hash() {
+    return this._hash.toString(16);
+  }
+  isAttacked(square, attackedBy) {
+    return this._attacked(attackedBy, Ox88[square]);
+  }
+  isCheck() {
+    return this._isKingAttacked(this._turn);
+  }
+  inCheck() {
+    return this.isCheck();
+  }
+  isCheckmate() {
+    return this.isCheck() && this._moves().length === 0;
+  }
+  isStalemate() {
+    return !this.isCheck() && this._moves().length === 0;
+  }
+  isInsufficientMaterial() {
+    const pieces = {
+      b: 0,
+      n: 0,
+      r: 0,
+      q: 0,
+      k: 0,
+      p: 0
+    };
+    const bishops = [];
+    let numPieces = 0;
+    let squareColor = 0;
+    for (let i = Ox88.a8; i <= Ox88.h1; i++) {
+      squareColor = (squareColor + 1) % 2;
+      if (i & 136) {
+        i += 7;
+        continue;
+      }
+      const piece = this._board[i];
+      if (piece) {
+        pieces[piece.type] = piece.type in pieces ? pieces[piece.type] + 1 : 1;
+        if (piece.type === BISHOP) {
+          bishops.push(squareColor);
+        }
+        numPieces++;
+      }
+    }
+    if (numPieces === 2) {
+      return true;
+    } else if (
+      // k vs. kn .... or .... k vs. kb
+      numPieces === 3 && (pieces[BISHOP] === 1 || pieces[KNIGHT] === 1)
+    ) {
+      return true;
+    } else if (numPieces === pieces[BISHOP] + 2) {
+      let sum = 0;
+      const len = bishops.length;
+      for (let i = 0; i < len; i++) {
+        sum += bishops[i];
+      }
+      if (sum === 0 || sum === len) {
+        return true;
+      }
+    }
+    return false;
+  }
+  isThreefoldRepetition() {
+    return this._getPositionCount(this._hash) >= 3;
+  }
+  isDrawByFiftyMoves() {
+    return this._halfMoves >= 100;
+  }
+  isDraw() {
+    return this.isDrawByFiftyMoves() || this.isStalemate() || this.isInsufficientMaterial() || this.isThreefoldRepetition();
+  }
+  isGameOver() {
+    return this.isCheckmate() || this.isDraw();
+  }
+  moves({ verbose = false, square = void 0, piece = void 0 } = {}) {
+    const moves = this._moves({ square, piece });
+    if (verbose) {
+      return moves.map((move) => new Move(this, move));
+    } else {
+      return moves.map((move) => this._moveToSan(move, moves));
+    }
+  }
+  _moves({ legal = true, piece = void 0, square = void 0 } = {}) {
+    const forSquare = square ? square.toLowerCase() : void 0;
+    const forPiece = piece?.toLowerCase();
+    const moves = [];
+    const us = this._turn;
+    const them = swapColor(us);
+    let firstSquare = Ox88.a8;
+    let lastSquare = Ox88.h1;
+    let singleSquare = false;
+    if (forSquare) {
+      if (!(forSquare in Ox88)) {
+        return [];
+      } else {
+        firstSquare = lastSquare = Ox88[forSquare];
+        singleSquare = true;
+      }
+    }
+    for (let from = firstSquare; from <= lastSquare; from++) {
+      if (from & 136) {
+        from += 7;
+        continue;
+      }
+      if (!this._board[from] || this._board[from].color === them) {
+        continue;
+      }
+      const { type } = this._board[from];
+      let to;
+      if (type === PAWN) {
+        if (forPiece && forPiece !== type)
+          continue;
+        to = from + PAWN_OFFSETS[us][0];
+        if (!this._board[to]) {
+          addMove(moves, us, from, to, PAWN);
+          to = from + PAWN_OFFSETS[us][1];
+          if (SECOND_RANK[us] === rank(from) && !this._board[to]) {
+            addMove(moves, us, from, to, PAWN, void 0, BITS.BIG_PAWN);
+          }
+        }
+        for (let j = 2; j < 4; j++) {
+          to = from + PAWN_OFFSETS[us][j];
+          if (to & 136)
+            continue;
+          if (this._board[to]?.color === them) {
+            addMove(moves, us, from, to, PAWN, this._board[to].type, BITS.CAPTURE);
+          } else if (to === this._epSquare) {
+            addMove(moves, us, from, to, PAWN, PAWN, BITS.EP_CAPTURE);
+          }
+        }
+      } else {
+        if (forPiece && forPiece !== type)
+          continue;
+        for (let j = 0, len = PIECE_OFFSETS[type].length; j < len; j++) {
+          const offset = PIECE_OFFSETS[type][j];
+          to = from;
+          while (true) {
+            to += offset;
+            if (to & 136)
+              break;
+            if (!this._board[to]) {
+              addMove(moves, us, from, to, type);
+            } else {
+              if (this._board[to].color === us)
+                break;
+              addMove(moves, us, from, to, type, this._board[to].type, BITS.CAPTURE);
+              break;
+            }
+            if (type === KNIGHT || type === KING)
+              break;
+          }
+        }
+      }
+    }
+    if (forPiece === void 0 || forPiece === KING) {
+      if (!singleSquare || lastSquare === this._kings[us]) {
+        if (this._castling[us] & BITS.KSIDE_CASTLE) {
+          const castlingFrom = this._kings[us];
+          const castlingTo = castlingFrom + 2;
+          if (!this._board[castlingFrom + 1] && !this._board[castlingTo] && !this._attacked(them, this._kings[us]) && !this._attacked(them, castlingFrom + 1) && !this._attacked(them, castlingTo)) {
+            addMove(moves, us, this._kings[us], castlingTo, KING, void 0, BITS.KSIDE_CASTLE);
+          }
+        }
+        if (this._castling[us] & BITS.QSIDE_CASTLE) {
+          const castlingFrom = this._kings[us];
+          const castlingTo = castlingFrom - 2;
+          if (!this._board[castlingFrom - 1] && !this._board[castlingFrom - 2] && !this._board[castlingFrom - 3] && !this._attacked(them, this._kings[us]) && !this._attacked(them, castlingFrom - 1) && !this._attacked(them, castlingTo)) {
+            addMove(moves, us, this._kings[us], castlingTo, KING, void 0, BITS.QSIDE_CASTLE);
+          }
+        }
+      }
+    }
+    if (!legal || this._kings[us] === -1) {
+      return moves;
+    }
+    const legalMoves = [];
+    for (let i = 0, len = moves.length; i < len; i++) {
+      this._makeMove(moves[i]);
+      if (!this._isKingAttacked(us)) {
+        legalMoves.push(moves[i]);
+      }
+      this._undoMove();
+    }
+    return legalMoves;
+  }
+  move(move, { strict = false } = {}) {
+    let moveObj = null;
+    if (typeof move === "string") {
+      moveObj = this._moveFromSan(move, strict);
+    } else if (move === null) {
+      moveObj = this._moveFromSan(SAN_NULLMOVE, strict);
+    } else if (typeof move === "object") {
+      const moves = this._moves();
+      for (let i = 0, len = moves.length; i < len; i++) {
+        if (move.from === algebraic(moves[i].from) && move.to === algebraic(moves[i].to) && (!("promotion" in moves[i]) || move.promotion === moves[i].promotion)) {
+          moveObj = moves[i];
+          break;
+        }
+      }
+    }
+    if (!moveObj) {
+      if (typeof move === "string") {
+        throw new Error(`Invalid move: ${move}`);
+      } else {
+        throw new Error(`Invalid move: ${JSON.stringify(move)}`);
+      }
+    }
+    if (this.isCheck() && moveObj.flags & BITS.NULL_MOVE) {
+      throw new Error("Null move not allowed when in check");
+    }
+    const prettyMove = new Move(this, moveObj);
+    this._makeMove(moveObj);
+    this._incPositionCount();
+    return prettyMove;
+  }
+  _push(move) {
+    this._history.push({
+      move,
+      kings: { b: this._kings.b, w: this._kings.w },
+      turn: this._turn,
+      castling: { b: this._castling.b, w: this._castling.w },
+      epSquare: this._epSquare,
+      halfMoves: this._halfMoves,
+      moveNumber: this._moveNumber
+    });
+  }
+  _movePiece(from, to) {
+    this._hash ^= this._pieceKey(from);
+    this._board[to] = this._board[from];
+    delete this._board[from];
+    this._hash ^= this._pieceKey(to);
+  }
+  _makeMove(move) {
+    const us = this._turn;
+    const them = swapColor(us);
+    this._push(move);
+    if (move.flags & BITS.NULL_MOVE) {
+      if (us === BLACK) {
+        this._moveNumber++;
+      }
+      this._halfMoves++;
+      this._turn = them;
+      this._epSquare = EMPTY;
+      return;
+    }
+    this._hash ^= this._epKey();
+    this._hash ^= this._castlingKey();
+    if (move.captured) {
+      this._hash ^= this._pieceKey(move.to);
+    }
+    this._movePiece(move.from, move.to);
+    if (move.flags & BITS.EP_CAPTURE) {
+      if (this._turn === BLACK) {
+        this._clear(move.to - 16);
+      } else {
+        this._clear(move.to + 16);
+      }
+    }
+    if (move.promotion) {
+      this._clear(move.to);
+      this._set(move.to, { type: move.promotion, color: us });
+    }
+    if (this._board[move.to].type === KING) {
+      this._kings[us] = move.to;
+      if (move.flags & BITS.KSIDE_CASTLE) {
+        const castlingTo = move.to - 1;
+        const castlingFrom = move.to + 1;
+        this._movePiece(castlingFrom, castlingTo);
+      } else if (move.flags & BITS.QSIDE_CASTLE) {
+        const castlingTo = move.to + 1;
+        const castlingFrom = move.to - 2;
+        this._movePiece(castlingFrom, castlingTo);
+      }
+      this._castling[us] = 0;
+    }
+    if (this._castling[us]) {
+      for (let i = 0, len = ROOKS[us].length; i < len; i++) {
+        if (move.from === ROOKS[us][i].square && this._castling[us] & ROOKS[us][i].flag) {
+          this._castling[us] ^= ROOKS[us][i].flag;
+          break;
+        }
+      }
+    }
+    if (this._castling[them]) {
+      for (let i = 0, len = ROOKS[them].length; i < len; i++) {
+        if (move.to === ROOKS[them][i].square && this._castling[them] & ROOKS[them][i].flag) {
+          this._castling[them] ^= ROOKS[them][i].flag;
+          break;
+        }
+      }
+    }
+    this._hash ^= this._castlingKey();
+    if (move.flags & BITS.BIG_PAWN) {
+      let epSquare;
+      if (us === BLACK) {
+        epSquare = move.to - 16;
+      } else {
+        epSquare = move.to + 16;
+      }
+      if (!(move.to - 1 & 136) && this._board[move.to - 1]?.type === PAWN && this._board[move.to - 1]?.color === them || !(move.to + 1 & 136) && this._board[move.to + 1]?.type === PAWN && this._board[move.to + 1]?.color === them) {
+        this._epSquare = epSquare;
+        this._hash ^= this._epKey();
+      } else {
+        this._epSquare = EMPTY;
+      }
+    } else {
+      this._epSquare = EMPTY;
+    }
+    if (move.piece === PAWN) {
+      this._halfMoves = 0;
+    } else if (move.flags & (BITS.CAPTURE | BITS.EP_CAPTURE)) {
+      this._halfMoves = 0;
+    } else {
+      this._halfMoves++;
+    }
+    if (us === BLACK) {
+      this._moveNumber++;
+    }
+    this._turn = them;
+    this._hash ^= SIDE_KEY;
+  }
+  undo() {
+    const hash = this._hash;
+    const move = this._undoMove();
+    if (move) {
+      const prettyMove = new Move(this, move);
+      this._decPositionCount(hash);
+      return prettyMove;
+    }
+    return null;
+  }
+  _undoMove() {
+    const old = this._history.pop();
+    if (old === void 0) {
+      return null;
+    }
+    this._hash ^= this._epKey();
+    this._hash ^= this._castlingKey();
+    const move = old.move;
+    this._kings = old.kings;
+    this._turn = old.turn;
+    this._castling = old.castling;
+    this._epSquare = old.epSquare;
+    this._halfMoves = old.halfMoves;
+    this._moveNumber = old.moveNumber;
+    this._hash ^= this._epKey();
+    this._hash ^= this._castlingKey();
+    this._hash ^= SIDE_KEY;
+    const us = this._turn;
+    const them = swapColor(us);
+    if (move.flags & BITS.NULL_MOVE) {
+      return move;
+    }
+    this._movePiece(move.to, move.from);
+    if (move.piece) {
+      this._clear(move.from);
+      this._set(move.from, { type: move.piece, color: us });
+    }
+    if (move.captured) {
+      if (move.flags & BITS.EP_CAPTURE) {
+        let index;
+        if (us === BLACK) {
+          index = move.to - 16;
+        } else {
+          index = move.to + 16;
+        }
+        this._set(index, { type: PAWN, color: them });
+      } else {
+        this._set(move.to, { type: move.captured, color: them });
+      }
+    }
+    if (move.flags & (BITS.KSIDE_CASTLE | BITS.QSIDE_CASTLE)) {
+      let castlingTo, castlingFrom;
+      if (move.flags & BITS.KSIDE_CASTLE) {
+        castlingTo = move.to + 1;
+        castlingFrom = move.to - 1;
+      } else {
+        castlingTo = move.to - 2;
+        castlingFrom = move.to + 1;
+      }
+      this._movePiece(castlingFrom, castlingTo);
+    }
+    return move;
+  }
+  pgn({ newline = "\n", maxWidth = 0 } = {}) {
+    const result = [];
+    let headerExists = false;
+    for (const i in this._header) {
+      const headerTag = this._header[i];
+      if (headerTag)
+        result.push(`[${i} "${this._header[i]}"]` + newline);
+      headerExists = true;
+    }
+    if (headerExists && this._history.length) {
+      result.push(newline);
+    }
+    const appendComment = (moveString2) => {
+      const comment = this._comments[this.fen()];
+      if (typeof comment !== "undefined") {
+        const delimiter = moveString2.length > 0 ? " " : "";
+        moveString2 = `${moveString2}${delimiter}{${comment}}`;
+      }
+      return moveString2;
+    };
+    const reversedHistory = [];
+    while (this._history.length > 0) {
+      reversedHistory.push(this._undoMove());
+    }
+    const moves = [];
+    let moveString = "";
+    if (reversedHistory.length === 0) {
+      moves.push(appendComment(""));
+    }
+    while (reversedHistory.length > 0) {
+      moveString = appendComment(moveString);
+      const move = reversedHistory.pop();
+      if (!move) {
+        break;
+      }
+      if (!this._history.length && move.color === "b") {
+        const prefix = `${this._moveNumber}. ...`;
+        moveString = moveString ? `${moveString} ${prefix}` : prefix;
+      } else if (move.color === "w") {
+        if (moveString.length) {
+          moves.push(moveString);
+        }
+        moveString = this._moveNumber + ".";
+      }
+      moveString = moveString + " " + this._moveToSan(move, this._moves({ legal: true }));
+      this._makeMove(move);
+    }
+    if (moveString.length) {
+      moves.push(appendComment(moveString));
+    }
+    moves.push(this._header.Result || "*");
+    if (maxWidth === 0) {
+      return result.join("") + moves.join(" ");
+    }
+    const strip = function() {
+      if (result.length > 0 && result[result.length - 1] === " ") {
+        result.pop();
+        return true;
+      }
+      return false;
+    };
+    const wrapComment = function(width, move) {
+      for (const token of move.split(" ")) {
+        if (!token) {
+          continue;
+        }
+        if (width + token.length > maxWidth) {
+          while (strip()) {
+            width--;
+          }
+          result.push(newline);
+          width = 0;
+        }
+        result.push(token);
+        width += token.length;
+        result.push(" ");
+        width++;
+      }
+      if (strip()) {
+        width--;
+      }
+      return width;
+    };
+    let currentWidth = 0;
+    for (let i = 0; i < moves.length; i++) {
+      if (currentWidth + moves[i].length > maxWidth) {
+        if (moves[i].includes("{")) {
+          currentWidth = wrapComment(currentWidth, moves[i]);
+          continue;
+        }
+      }
+      if (currentWidth + moves[i].length > maxWidth && i !== 0) {
+        if (result[result.length - 1] === " ") {
+          result.pop();
+        }
+        result.push(newline);
+        currentWidth = 0;
+      } else if (i !== 0) {
+        result.push(" ");
+        currentWidth++;
+      }
+      result.push(moves[i]);
+      currentWidth += moves[i].length;
+    }
+    return result.join("");
+  }
+  /**
+   * @deprecated Use `setHeader` and `getHeaders` instead. This method will return null header tags (which is not what you want)
+   */
+  header(...args) {
+    for (let i = 0; i < args.length; i += 2) {
+      if (typeof args[i] === "string" && typeof args[i + 1] === "string") {
+        this._header[args[i]] = args[i + 1];
+      }
+    }
+    return this._header;
+  }
+  // TODO: value validation per spec
+  setHeader(key, value) {
+    this._header[key] = value ?? SEVEN_TAG_ROSTER[key] ?? null;
+    return this.getHeaders();
+  }
+  removeHeader(key) {
+    if (key in this._header) {
+      this._header[key] = SEVEN_TAG_ROSTER[key] || null;
+      return true;
+    }
+    return false;
+  }
+  // return only non-null headers (omit placemarker nulls)
+  getHeaders() {
+    const nonNullHeaders = {};
+    for (const [key, value] of Object.entries(this._header)) {
+      if (value !== null) {
+        nonNullHeaders[key] = value;
+      }
+    }
+    return nonNullHeaders;
+  }
+  loadPgn(pgn2, { strict = false, newlineChar = "\r?\n" } = {}) {
+    if (newlineChar !== "\r?\n") {
+      pgn2 = pgn2.replace(new RegExp(newlineChar, "g"), "\n");
+    }
+    const parsedPgn = peg$parse(pgn2);
+    this.reset();
+    const headers = parsedPgn.headers;
+    let fen = "";
+    for (const key in headers) {
+      if (key.toLowerCase() === "fen") {
+        fen = headers[key];
+      }
+      this.header(key, headers[key]);
+    }
+    if (!strict) {
+      if (fen) {
+        this.load(fen, { preserveHeaders: true });
+      }
+    } else {
+      if (headers["SetUp"] === "1") {
+        if (!("FEN" in headers)) {
+          throw new Error("Invalid PGN: FEN tag must be supplied with SetUp tag");
+        }
+        this.load(headers["FEN"], { preserveHeaders: true });
+      }
+    }
+    let node2 = parsedPgn.root;
+    while (node2) {
+      if (node2.move) {
+        const move = this._moveFromSan(node2.move, strict);
+        if (move == null) {
+          throw new Error(`Invalid move in PGN: ${node2.move}`);
+        } else {
+          this._makeMove(move);
+          this._incPositionCount();
+        }
+      }
+      if (node2.comment !== void 0) {
+        this._comments[this.fen()] = node2.comment;
+      }
+      node2 = node2.variations[0];
+    }
+    const result = parsedPgn.result;
+    if (result && Object.keys(this._header).length && this._header["Result"] !== result) {
+      this.setHeader("Result", result);
+    }
+  }
+  /*
+   * Convert a move from 0x88 coordinates to Standard Algebraic Notation
+   * (SAN)
+   *
+   * @param {boolean} strict Use the strict SAN parser. It will throw errors
+   * on overly disambiguated moves (see below):
+   *
+   * r1bqkbnr/ppp2ppp/2n5/1B1pP3/4P3/8/PPPP2PP/RNBQK1NR b KQkq - 2 4
+   * 4. ... Nge7 is overly disambiguated because the knight on c6 is pinned
+   * 4. ... Ne7 is technically the valid SAN
+   */
+  _moveToSan(move, moves) {
+    let output = "";
+    if (move.flags & BITS.KSIDE_CASTLE) {
+      output = "O-O";
+    } else if (move.flags & BITS.QSIDE_CASTLE) {
+      output = "O-O-O";
+    } else if (move.flags & BITS.NULL_MOVE) {
+      return SAN_NULLMOVE;
+    } else {
+      if (move.piece !== PAWN) {
+        const disambiguator = getDisambiguator(move, moves);
+        output += move.piece.toUpperCase() + disambiguator;
+      }
+      if (move.flags & (BITS.CAPTURE | BITS.EP_CAPTURE)) {
+        if (move.piece === PAWN) {
+          output += algebraic(move.from)[0];
+        }
+        output += "x";
+      }
+      output += algebraic(move.to);
+      if (move.promotion) {
+        output += "=" + move.promotion.toUpperCase();
+      }
+    }
+    this._makeMove(move);
+    if (this.isCheck()) {
+      if (this.isCheckmate()) {
+        output += "#";
+      } else {
+        output += "+";
+      }
+    }
+    this._undoMove();
+    return output;
+  }
+  // convert a move from Standard Algebraic Notation (SAN) to 0x88 coordinates
+  _moveFromSan(move, strict = false) {
+    let cleanMove = strippedSan(move);
+    if (!strict) {
+      if (cleanMove === "0-0") {
+        cleanMove = "O-O";
+      } else if (cleanMove === "0-0-0") {
+        cleanMove = "O-O-O";
+      }
+    }
+    if (cleanMove == SAN_NULLMOVE) {
+      const res = {
+        color: this._turn,
+        from: 0,
+        to: 0,
+        piece: "k",
+        flags: BITS.NULL_MOVE
+      };
+      return res;
+    }
+    let pieceType = inferPieceType(cleanMove);
+    let moves = this._moves({ legal: true, piece: pieceType });
+    for (let i = 0, len = moves.length; i < len; i++) {
+      if (cleanMove === strippedSan(this._moveToSan(moves[i], moves))) {
+        return moves[i];
+      }
+    }
+    if (strict) {
+      return null;
+    }
+    let piece = void 0;
+    let matches = void 0;
+    let from = void 0;
+    let to = void 0;
+    let promotion = void 0;
+    let overlyDisambiguated = false;
+    matches = cleanMove.match(/([pnbrqkPNBRQK])?([a-h][1-8])x?-?([a-h][1-8])([qrbnQRBN])?/);
+    if (matches) {
+      piece = matches[1];
+      from = matches[2];
+      to = matches[3];
+      promotion = matches[4];
+      if (from.length == 1) {
+        overlyDisambiguated = true;
+      }
+    } else {
+      matches = cleanMove.match(/([pnbrqkPNBRQK])?([a-h]?[1-8]?)x?-?([a-h][1-8])([qrbnQRBN])?/);
+      if (matches) {
+        piece = matches[1];
+        from = matches[2];
+        to = matches[3];
+        promotion = matches[4];
+        if (from.length == 1) {
+          overlyDisambiguated = true;
+        }
+      }
+    }
+    pieceType = inferPieceType(cleanMove);
+    moves = this._moves({
+      legal: true,
+      piece: piece ? piece : pieceType
+    });
+    if (!to) {
+      return null;
+    }
+    for (let i = 0, len = moves.length; i < len; i++) {
+      if (!from) {
+        if (cleanMove === strippedSan(this._moveToSan(moves[i], moves)).replace("x", "")) {
+          return moves[i];
+        }
+      } else if ((!piece || piece.toLowerCase() == moves[i].piece) && Ox88[from] == moves[i].from && Ox88[to] == moves[i].to && (!promotion || promotion.toLowerCase() == moves[i].promotion)) {
+        return moves[i];
+      } else if (overlyDisambiguated) {
+        const square = algebraic(moves[i].from);
+        if ((!piece || piece.toLowerCase() == moves[i].piece) && Ox88[to] == moves[i].to && (from == square[0] || from == square[1]) && (!promotion || promotion.toLowerCase() == moves[i].promotion)) {
+          return moves[i];
+        }
+      }
+    }
+    return null;
+  }
+  ascii() {
+    let s = "   +------------------------+\n";
+    for (let i = Ox88.a8; i <= Ox88.h1; i++) {
+      if (file(i) === 0) {
+        s += " " + "87654321"[rank(i)] + " |";
+      }
+      if (this._board[i]) {
+        const piece = this._board[i].type;
+        const color = this._board[i].color;
+        const symbol = color === WHITE ? piece.toUpperCase() : piece.toLowerCase();
+        s += " " + symbol + " ";
+      } else {
+        s += " . ";
+      }
+      if (i + 1 & 136) {
+        s += "|\n";
+        i += 8;
+      }
+    }
+    s += "   +------------------------+\n";
+    s += "     a  b  c  d  e  f  g  h";
+    return s;
+  }
+  perft(depth) {
+    const moves = this._moves({ legal: false });
+    let nodes = 0;
+    const color = this._turn;
+    for (let i = 0, len = moves.length; i < len; i++) {
+      this._makeMove(moves[i]);
+      if (!this._isKingAttacked(color)) {
+        if (depth - 1 > 0) {
+          nodes += this.perft(depth - 1);
+        } else {
+          nodes++;
+        }
+      }
+      this._undoMove();
+    }
+    return nodes;
+  }
+  setTurn(color) {
+    if (this._turn == color) {
+      return false;
+    }
+    this.move("--");
+    return true;
+  }
+  turn() {
+    return this._turn;
+  }
+  board() {
+    const output = [];
+    let row = [];
+    for (let i = Ox88.a8; i <= Ox88.h1; i++) {
+      if (this._board[i] == null) {
+        row.push(null);
+      } else {
+        row.push({
+          square: algebraic(i),
+          type: this._board[i].type,
+          color: this._board[i].color
+        });
+      }
+      if (i + 1 & 136) {
+        output.push(row);
+        row = [];
+        i += 8;
+      }
+    }
+    return output;
+  }
+  squareColor(square) {
+    if (square in Ox88) {
+      const sq = Ox88[square];
+      return (rank(sq) + file(sq)) % 2 === 0 ? "light" : "dark";
+    }
+    return null;
+  }
+  history({ verbose = false } = {}) {
+    const reversedHistory = [];
+    const moveHistory = [];
+    while (this._history.length > 0) {
+      reversedHistory.push(this._undoMove());
+    }
+    while (true) {
+      const move = reversedHistory.pop();
+      if (!move) {
+        break;
+      }
+      if (verbose) {
+        moveHistory.push(new Move(this, move));
+      } else {
+        moveHistory.push(this._moveToSan(move, this._moves()));
+      }
+      this._makeMove(move);
+    }
+    return moveHistory;
+  }
+  /*
+   * Keeps track of position occurrence counts for the purpose of repetition
+   * checking. Old positions are removed from the map if their counts are reduced to 0.
+   */
+  _getPositionCount(hash) {
+    return this._positionCount.get(hash) ?? 0;
+  }
+  _incPositionCount() {
+    this._positionCount.set(this._hash, (this._positionCount.get(this._hash) ?? 0) + 1);
+  }
+  _decPositionCount(hash) {
+    const currentCount = this._positionCount.get(hash) ?? 0;
+    if (currentCount === 1) {
+      this._positionCount.delete(hash);
+    } else {
+      this._positionCount.set(hash, currentCount - 1);
+    }
+  }
+  _pruneComments() {
+    const reversedHistory = [];
+    const currentComments = {};
+    const copyComment = (fen) => {
+      if (fen in this._comments) {
+        currentComments[fen] = this._comments[fen];
+      }
+    };
+    while (this._history.length > 0) {
+      reversedHistory.push(this._undoMove());
+    }
+    copyComment(this.fen());
+    while (true) {
+      const move = reversedHistory.pop();
+      if (!move) {
+        break;
+      }
+      this._makeMove(move);
+      copyComment(this.fen());
+    }
+    this._comments = currentComments;
+  }
+  getComment() {
+    return this._comments[this.fen()];
+  }
+  setComment(comment) {
+    this._comments[this.fen()] = comment.replace("{", "[").replace("}", "]");
+  }
+  /**
+   * @deprecated Renamed to `removeComment` for consistency
+   */
+  deleteComment() {
+    return this.removeComment();
+  }
+  removeComment() {
+    const comment = this._comments[this.fen()];
+    delete this._comments[this.fen()];
+    return comment;
+  }
+  getComments() {
+    this._pruneComments();
+    return Object.keys(this._comments).map((fen) => {
+      return { fen, comment: this._comments[fen] };
+    });
+  }
+  /**
+   * @deprecated Renamed to `removeComments` for consistency
+   */
+  deleteComments() {
+    return this.removeComments();
+  }
+  removeComments() {
+    this._pruneComments();
+    return Object.keys(this._comments).map((fen) => {
+      const comment = this._comments[fen];
+      delete this._comments[fen];
+      return { fen, comment };
+    });
+  }
+  setCastlingRights(color, rights) {
+    for (const side of [KING, QUEEN]) {
+      if (rights[side] !== void 0) {
+        if (rights[side]) {
+          this._castling[color] |= SIDES[side];
+        } else {
+          this._castling[color] &= ~SIDES[side];
+        }
+      }
+    }
+    this._updateCastlingRights();
+    const result = this.getCastlingRights(color);
+    return (rights[KING] === void 0 || rights[KING] === result[KING]) && (rights[QUEEN] === void 0 || rights[QUEEN] === result[QUEEN]);
+  }
+  getCastlingRights(color) {
+    return {
+      [KING]: (this._castling[color] & SIDES[KING]) !== 0,
+      [QUEEN]: (this._castling[color] & SIDES[QUEEN]) !== 0
+    };
+  }
+  moveNumber() {
+    return this._moveNumber;
+  }
+};
+
+// data/puzzleLoader.js
+var activeLibrary = null;
+function getPuzzleLibrary() {
+  if (!activeLibrary) {
+    throw new Error("No puzzle library loaded. Set an in-memory or SQLite-backed puzzle library first.");
+  }
+  return activeLibrary;
+}
+function filterPuzzles(query, library = activeLibrary) {
+  if (!library || typeof library.filter !== "function") {
+    throw new Error("No puzzle library loaded. Set a puzzle library before filterPuzzles().");
+  }
+  return library.filter(query);
+}
+
+// data/themeMapping.js
+var WEAKNESS_CATEGORIES = Object.freeze([
+  "tactical",
+  "king_safety",
+  "pawn_structure",
+  "piece_activity",
+  "positional_judgment",
+  "endgame_technique",
+  "practical_time"
+]);
+var STEP_BUCKETS = Object.freeze({
+  short: Object.freeze([2, 6]),
+  long: Object.freeze([8, 12])
+});
+var THEME_TO_WEAKNESS = Object.freeze({
+  advancedPawn: "pawn_structure",
+  advantage: "positional_judgment",
+  anastasiaMate: "tactical",
+  arabianMate: "tactical",
+  attackingF2F7: "king_safety",
+  attraction: "tactical",
+  backRankMate: "tactical",
+  balestraMate: "tactical",
+  bishopEndgame: "endgame_technique",
+  blindSwineMate: "tactical",
+  bodenMate: "tactical",
+  capturingDefender: "tactical",
+  castling: "king_safety",
+  checkFirst: "tactical",
+  clearance: "piece_activity",
+  collinearMove: "piece_activity",
+  cornerMate: "tactical",
+  crushing: "positional_judgment",
+  defensiveMove: "positional_judgment",
+  deflection: "tactical",
+  discoveredAttack: "tactical",
+  discoveredCheck: "tactical",
+  doubleBishopMate: "tactical",
+  doubleCheck: "king_safety",
+  dovetailMate: "tactical",
+  endgame: "endgame_technique",
+  enPassant: "pawn_structure",
+  epauletteMate: "tactical",
+  equality: "positional_judgment",
+  exposedKing: "king_safety",
+  fork: "tactical",
+  hangingPiece: "tactical",
+  hookMate: "tactical",
+  interference: "tactical",
+  intermezzo: "tactical",
+  killBoxMate: "tactical",
+  kingsideAttack: "king_safety",
+  knightEndgame: "endgame_technique",
+  mate: "tactical",
+  mateIn1: "tactical",
+  mateIn2: "tactical",
+  mateIn3: "tactical",
+  mateIn4: "tactical",
+  mateIn5: "tactical",
+  middlegame: "positional_judgment",
+  operaMate: "tactical",
+  opening: "positional_judgment",
+  pawnEndgame: "endgame_technique",
+  pillsburysMate: "tactical",
+  pin: "tactical",
+  promotion: "pawn_structure",
+  queenEndgame: "endgame_technique",
+  queenRookEndgame: "endgame_technique",
+  queensideAttack: "king_safety",
+  quietMove: "positional_judgment",
+  rookEndgame: "endgame_technique",
+  sacrifice: "tactical",
+  skewer: "tactical",
+  smotheredMate: "tactical",
+  swallowstailMate: "tactical",
+  trappedPiece: "piece_activity",
+  triangleMate: "tactical",
+  underPromotion: "pawn_structure",
+  vukovicMate: "tactical",
+  xRayAttack: "piece_activity",
+  zugzwang: "endgame_technique"
+});
+var NON_WEAKNESS_METADATA_THEMES = Object.freeze([
+  "master",
+  "masterVsMaster",
+  "superGM",
+  "mix",
+  "oneMove",
+  "short",
+  "long",
+  "veryLong"
+]);
+var WEAKNESS_TO_THEMES = Object.freeze(
+  WEAKNESS_CATEGORIES.reduce((acc, category) => {
+    acc[category] = Object.freeze(
+      Object.entries(THEME_TO_WEAKNESS).filter(([, mappedCategory]) => mappedCategory === category).map(([theme]) => theme)
+    );
+    return acc;
+  }, {})
+);
+function getThemeTagsForWeakness(weaknessCategory) {
+  if (!WEAKNESS_CATEGORIES.includes(weaknessCategory)) {
+    throw new RangeError(`Unknown weakness category: ${weaknessCategory}`);
+  }
+  return WEAKNESS_TO_THEMES[weaknessCategory];
+}
+function pickOne(puzzles, random) {
+  if (!puzzles.length) return null;
+  const index = Math.min(puzzles.length - 1, Math.floor(random() * puzzles.length));
+  return puzzles[index];
+}
+function sampleForQuery(library, query, random) {
+  if (typeof library?.sample === "function") return library.sample(query, random);
+  return pickOne(filterPuzzles(query, library), random);
+}
+function longestForThemes(library, themeTags) {
+  if (typeof library?.findLongest === "function") return library.findLongest({ themeTags });
+  return filterPuzzles(
+    { themeTags, stepRange: [0, Number.POSITIVE_INFINITY] },
+    library
+  ).reduce((longest, puzzle) => {
+    if (!longest || puzzle.stepCount > longest.stepCount) return puzzle;
+    return longest;
+  }, null);
+}
+function getOneForBucket(weaknessCategory, bucket, library, random) {
+  const stepRange = STEP_BUCKETS[bucket];
+  if (!stepRange) throw new RangeError(`Unknown step bucket: ${bucket}`);
+  const themeTags = getThemeTagsForWeakness(weaknessCategory);
+  if (themeTags.length === 0) {
+    throw new Error(`No seed-puzzle themes are mapped for weakness ${weaknessCategory}.`);
+  }
+  const puzzle = sampleForQuery(library, { themeTags, stepRange }, random);
+  if (puzzle) return puzzle;
+  if (bucket === "long") {
+    const fallback = longestForThemes(library, themeTags);
+    if (fallback) {
+      return Object.freeze({
+        ...fallback,
+        bucketDowngraded: true
+      });
+    }
+  }
+  throw new Error(`No ${bucket} puzzle available for weakness ${weaknessCategory}.`);
+}
+function getPuzzlesForWeakness(weaknessCategory, stepBucket = "start-slow", { library = getPuzzleLibrary(), random = Math.random } = {}) {
+  if (!WEAKNESS_CATEGORIES.includes(weaknessCategory)) {
+    throw new RangeError(`Unknown weakness category: ${weaknessCategory}`);
+  }
+  if (stepBucket === "short" || stepBucket === "long") {
+    return [getOneForBucket(weaknessCategory, stepBucket, library, random)];
+  }
+  if (stepBucket !== "start-slow" && stepBucket !== null && stepBucket !== void 0) {
+    throw new RangeError(`Unknown step bucket: ${stepBucket}`);
+  }
+  return [
+    getOneForBucket(weaknessCategory, "short", library, random),
+    getOneForBucket(weaknessCategory, "long", library, random)
+  ];
+}
+
+// engine/stockfishWorker.js
+var DEFAULT_ANALYSIS_DEPTH = 16;
+var DEFAULT_PLAY_DEPTH = 12;
+var MATE_SCORE_CP = 1e5;
+function normalizeWorkerMessage(event) {
+  const value = event?.data ?? event;
+  return String(value ?? "").trim();
+}
+function parseInfoLine(line) {
+  if (!line.startsWith("info ")) return null;
+  const depthMatch = line.match(/\bdepth\s+(\d+)/);
+  const cpMatch = line.match(/\bscore\s+cp\s+(-?\d+)/);
+  const mateMatch = line.match(/\bscore\s+mate\s+(-?\d+)/);
+  const pvMatch = line.match(/\bpv\s+(.+)$/);
+  let evalCp = null;
+  let isMateScore = false;
+  if (cpMatch) {
+    evalCp = Number.parseInt(cpMatch[1], 10);
+  } else if (mateMatch) {
+    const mateIn = Number.parseInt(mateMatch[1], 10);
+    evalCp = Math.sign(mateIn || 1) * MATE_SCORE_CP;
+    isMateScore = true;
+  }
+  return {
+    depth: depthMatch ? Number.parseInt(depthMatch[1], 10) : 0,
+    evalCp,
+    isMateScore,
+    principalVariation: pvMatch ? pvMatch[1].trim().split(/\s+/) : []
+  };
+}
+function defaultWorkerFactory(workerUrl) {
+  if (typeof Worker === "undefined") {
+    throw new Error("Web Worker is unavailable in this runtime. Provide workerFactory for tests/non-browser runtimes.");
+  }
+  return new Worker(workerUrl);
+}
+function defaultWorkerUrl() {
+  return new URL("./vendor/stockfish/stockfish.js", import.meta.url);
+}
+var StockfishWorkerClient = class {
+  constructor({
+    workerUrl = defaultWorkerUrl(),
+    workerFactory = defaultWorkerFactory,
+    analysisDepth = DEFAULT_ANALYSIS_DEPTH,
+    playDepth = DEFAULT_PLAY_DEPTH,
+    commandTimeoutMs = 15e3,
+    searchTimeoutMs = 3e4
+  } = {}) {
+    this.worker = workerFactory(workerUrl);
+    this.analysisDepth = analysisDepth;
+    this.playDepth = playDepth;
+    this.commandTimeoutMs = commandTimeoutMs;
+    this.searchTimeoutMs = searchTimeoutMs;
+    this.waiters = [];
+    this.currentSearch = null;
+    this.queue = Promise.resolve();
+    this.disposed = false;
+    this.failure = null;
+    this.readyPromise = null;
+    this.engineName = null;
+    this.engineAuthor = null;
+    this.handleMessage = this.handleMessage.bind(this);
+    this.handleError = this.handleError.bind(this);
+    this.worker.addEventListener("message", this.handleMessage);
+    this.worker.addEventListener?.("error", this.handleError);
+  }
+  handleError(event) {
+    const error = event instanceof Error ? event : new Error(event?.message || "Stockfish worker failed.");
+    this.fail(error);
+  }
+  fail(error) {
+    if (!this.failure) this.failure = error;
+    for (const waiter of this.waiters.splice(0)) {
+      clearTimeout(waiter.timer);
+      waiter.reject(this.failure);
+    }
+    if (this.currentSearch) {
+      clearTimeout(this.currentSearch.timer);
+      this.currentSearch.reject(this.failure);
+      this.currentSearch = null;
+    }
+    this.worker.terminate?.();
+  }
+  handleMessage(event) {
+    const line = normalizeWorkerMessage(event);
+    if (!line) return;
+    if (line.startsWith("id name ")) this.engineName = line.slice("id name ".length);
+    if (line.startsWith("id author ")) this.engineAuthor = line.slice("id author ".length);
+    for (let i = 0; i < this.waiters.length; i += 1) {
+      const waiter = this.waiters[i];
+      if (waiter.predicate(line)) {
+        this.waiters.splice(i, 1);
+        clearTimeout(waiter.timer);
+        waiter.resolve(line);
+        break;
+      }
+    }
+    if (!this.currentSearch) return;
+    const info = parseInfoLine(line);
+    if (info && info.depth >= this.currentSearch.depth) {
+      this.currentSearch.depth = info.depth;
+      if (info.evalCp !== null) {
+        this.currentSearch.evalCp = info.evalCp;
+        this.currentSearch.isMateScore = info.isMateScore;
+      }
+      if (info.principalVariation.length) {
+        this.currentSearch.principalVariation = info.principalVariation;
+      }
+      return;
+    }
+    const bestMoveMatch = line.match(/^bestmove\s+(\S+)/);
+    if (bestMoveMatch) {
+      const search = this.currentSearch;
+      this.currentSearch = null;
+      clearTimeout(search.timer);
+      const bestMove = bestMoveMatch[1] === "(none)" ? null : bestMoveMatch[1];
+      search.resolve({
+        bestMove,
+        evalCp: search.evalCp,
+        isMateScore: search.isMateScore,
+        principalVariation: search.principalVariation
+      });
+    }
+  }
+  waitFor(predicate, timeoutMs = this.commandTimeoutMs) {
+    if (this.disposed) return Promise.reject(new Error("Stockfish worker has been disposed."));
+    if (this.failure) return Promise.reject(this.failure);
+    return new Promise((resolve, reject) => {
+      const waiter = { predicate, resolve, reject, timer: null };
+      waiter.timer = setTimeout(() => {
+        this.fail(new Error(`Stockfish command timed out after ${timeoutMs} ms.`));
+      }, timeoutMs);
+      this.waiters.push(waiter);
+    });
+  }
+  post(command) {
+    if (this.disposed) throw new Error("Stockfish worker has been disposed.");
+    if (this.failure) throw this.failure;
+    this.worker.postMessage(command);
+  }
+  async ensureReady() {
+    if (!this.readyPromise) {
+      this.readyPromise = (async () => {
+        const uciOk = this.waitFor((line) => line === "uciok");
+        this.post("uci");
+        await uciOk;
+        await this.syncReady();
+      })();
+    }
+    return this.readyPromise;
+  }
+  async syncReady() {
+    const ready = this.waitFor((line) => line === "readyok");
+    this.post("isready");
+    await ready;
+  }
+  enqueue(task) {
+    const run = this.queue.then(task, task);
+    this.queue = run.catch(() => void 0);
+    return run;
+  }
+  async search(fen, command) {
+    if (this.currentSearch) {
+      throw new Error("A Stockfish search is already active. Searches must be serialized.");
+    }
+    this.post(`position fen ${fen}`);
+    const result = new Promise((resolve, reject) => {
+      const search = {
+        depth: -1,
+        evalCp: null,
+        isMateScore: false,
+        principalVariation: [],
+        resolve,
+        reject,
+        timer: null
+      };
+      search.timer = setTimeout(() => {
+        if (this.currentSearch !== search) return;
+        this.fail(new Error(`Stockfish search timed out after ${this.searchTimeoutMs} ms.`));
+      }, this.searchTimeoutMs);
+      this.currentSearch = search;
+    });
+    this.post(command);
+    return result;
+  }
+  analyzePosition(fen, depth = this.analysisDepth) {
+    return this.enqueue(async () => {
+      await this.ensureReady();
+      this.post("setoption name UCI_LimitStrength value false");
+      this.post("setoption name Skill Level value 20");
+      await this.syncReady();
+      return this.search(fen, `go depth ${Math.max(1, Math.trunc(depth))}`);
+    });
+  }
+  playMove(fen, skillLevel = 10) {
+    return this.enqueue(async () => {
+      await this.ensureReady();
+      const strength = Number(skillLevel);
+      if (!Number.isFinite(strength)) {
+        throw new TypeError("skillLevel must be a finite number.");
+      }
+      if (strength >= 0 && strength <= 20) {
+        this.post("setoption name UCI_LimitStrength value false");
+        this.post(`setoption name Skill Level value ${Math.trunc(strength)}`);
+      } else {
+        this.post("setoption name UCI_LimitStrength value true");
+        this.post(`setoption name UCI_Elo value ${Math.trunc(strength)}`);
+      }
+      await this.syncReady();
+      const result = await this.search(fen, `go depth ${this.playDepth}`);
+      return result.bestMove;
+    });
+  }
+  dispose() {
+    if (this.disposed) return;
+    this.disposed = true;
+    this.worker.removeEventListener?.("message", this.handleMessage);
+    this.worker.removeEventListener?.("error", this.handleError);
+    this.worker.terminate?.();
+    const error = new Error("Stockfish worker disposed.");
+    for (const waiter of this.waiters.splice(0)) {
+      clearTimeout(waiter.timer);
+      waiter.reject(error);
+    }
+    if (this.currentSearch) {
+      clearTimeout(this.currentSearch.timer);
+      this.currentSearch.reject(error);
+      this.currentSearch = null;
+    }
+  }
+};
+var singletonClient = null;
+function configureStockfish(options = {}) {
+  singletonClient?.dispose();
+  singletonClient = new StockfishWorkerClient(options);
+  return singletonClient;
+}
+function getSingletonClient() {
+  if (!singletonClient) singletonClient = new StockfishWorkerClient();
+  return singletonClient;
+}
+function analyzePosition(fen, depth) {
+  return getSingletonClient().analyzePosition(fen, depth);
+}
+function playMove(fen, skillLevel) {
+  return getSingletonClient().playMove(fen, skillLevel);
+}
+
+// engine/fen.js
+var UCI_MOVE_PATTERN = /^([a-h][1-8])([a-h][1-8])([qrbn])?$/;
+function applyUciMoveToFen(fen, uciMove) {
+  const normalizedFen = String(fen ?? "").trim();
+  const normalizedMove = String(uciMove ?? "").trim();
+  const match = normalizedMove.match(UCI_MOVE_PATTERN);
+  if (!match) {
+    throw new Error(`Invalid UCI move: ${uciMove}`);
+  }
+  let chess2;
+  try {
+    chess2 = new Chess(normalizedFen);
+  } catch (error) {
+    throw new Error(`Invalid FEN: ${error.message}`, { cause: error });
+  }
+  const [, from, to, promotion] = match;
+  const move = promotion ? { from, to, promotion } : { from, to };
+  try {
+    chess2.move(move);
+  } catch (error) {
+    throw new Error(`Illegal UCI move ${normalizedMove}: ${error.message}`, { cause: error });
+  }
+  return chess2.fen();
+}
+
+// engine/practiceSession.js
+function createDefaultEngine() {
+  return {
+    analyzePosition,
+    playMove
+  };
+}
+function defaultId() {
+  if (globalThis.crypto?.randomUUID) return globalThis.crypto.randomUUID();
+  return `practice-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+}
+function normalizeAnalysis(analysis) {
+  if (!analysis || typeof analysis !== "object") {
+    return { bestMove: null, evalCp: null, principalVariation: [], isMateScore: false };
+  }
+  return {
+    bestMove: analysis.bestMove ?? null,
+    evalCp: analysis.evalCp ?? null,
+    principalVariation: Array.isArray(analysis.principalVariation) ? analysis.principalVariation : [],
+    isMateScore: Boolean(analysis.isMateScore)
+  };
+}
+function getSetupMove(puzzle) {
+  const moves = Array.isArray(puzzle?.moves) ? puzzle.moves : String(puzzle?.Moves ?? "").trim().split(/\s+/).filter(Boolean);
+  if (!moves.length) {
+    throw new Error("A Lichess seed puzzle with Moves[0] setup move is required.");
+  }
+  return moves[0];
+}
+function getMotifReadyFen(puzzle) {
+  if (!puzzle?.FEN) throw new Error("A seed puzzle with FEN is required.");
+  return applyUciMoveToFen(puzzle.FEN, getSetupMove(puzzle));
+}
+var PracticeSession = class {
+  constructor({
+    puzzle,
+    skillLevel = 10,
+    analysisDepth = 14,
+    engine = createDefaultEngine(),
+    gameId = defaultId(),
+    now = () => (/* @__PURE__ */ new Date()).toISOString()
+  }) {
+    if (!puzzle?.FEN) throw new Error("A seed puzzle with FEN is required.");
+    if (!engine?.analyzePosition || !engine?.playMove) {
+      throw new TypeError("engine must provide analyzePosition() and playMove().");
+    }
+    this.puzzle = puzzle;
+    this.skillLevel = skillLevel;
+    this.analysisDepth = analysisDepth;
+    this.engine = engine;
+    this.gameId = gameId;
+    this.now = now;
+    this.startFen = getMotifReadyFen(puzzle);
+    this.currentFen = this.startFen;
+    this.logs = [];
+    this.ended = false;
+    this.result = null;
+  }
+  get nextPlyNumber() {
+    return this.logs.length + 1;
+  }
+  async evaluate(fen) {
+    return normalizeAnalysis(await this.engine.analyzePosition(fen, this.analysisDepth));
+  }
+  makeLog({ plyNumber, fenBefore, movePlayed, beforeAnalysis, afterAnalysis, stockfishResponse = null }) {
+    const before = normalizeAnalysis(beforeAnalysis);
+    const after = normalizeAnalysis(afterAnalysis);
+    return {
+      game_id: this.gameId,
+      ply_number: plyNumber,
+      fen_before: fenBefore,
+      move_played: movePlayed,
+      eval_cp_before: before.evalCp,
+      eval_cp_after: after.evalCp,
+      best_move: before.bestMove,
+      principal_variation: before.principalVariation.length ? before.principalVariation.join(" ") : null,
+      is_mate_score: before.isMateScore || after.isMateScore ? 1 : 0,
+      stockfish_response: stockfishResponse,
+      timestamp: this.now()
+    };
+  }
+  async playTurn(playerMove) {
+    if (this.ended) throw new Error("Practice session has ended.");
+    const playerFenBefore = this.currentFen;
+    const playerBeforeAnalysis = await this.evaluate(playerFenBefore);
+    const playerFenAfter = applyUciMoveToFen(playerFenBefore, playerMove);
+    const playerAfterAnalysis = await this.evaluate(playerFenAfter);
+    const playerLog = this.makeLog({
+      plyNumber: this.nextPlyNumber,
+      fenBefore: playerFenBefore,
+      movePlayed: playerMove,
+      beforeAnalysis: playerBeforeAnalysis,
+      afterAnalysis: playerAfterAnalysis
+    });
+    const engineFenBefore = playerFenAfter;
+    const engineBeforeAnalysis = playerAfterAnalysis;
+    const engineMove = await this.engine.playMove(engineFenBefore, this.skillLevel);
+    if (!engineMove) {
+      this.currentFen = playerFenAfter;
+      this.logs.push(playerLog);
+      return { playerLog, engineLog: null, currentFen: this.currentFen };
+    }
+    playerLog.stockfish_response = engineMove;
+    const engineFenAfter = applyUciMoveToFen(engineFenBefore, engineMove);
+    const engineAfterAnalysis = await this.evaluate(engineFenAfter);
+    const engineLog = this.makeLog({
+      plyNumber: this.nextPlyNumber + 1,
+      fenBefore: engineFenBefore,
+      movePlayed: engineMove,
+      beforeAnalysis: engineBeforeAnalysis,
+      afterAnalysis: engineAfterAnalysis
+    });
+    this.currentFen = engineFenAfter;
+    this.logs.push(playerLog, engineLog);
+    return { playerLog, engineLog, currentFen: this.currentFen };
+  }
+  async run(moveProvider, { maxTurns = Number.POSITIVE_INFINITY } = {}) {
+    if (typeof moveProvider !== "function") throw new TypeError("moveProvider must be a function.");
+    let turns = 0;
+    while (!this.ended && turns < maxTurns) {
+      const move = await moveProvider({
+        fen: this.currentFen,
+        logs: [...this.logs],
+        turn: turns
+      });
+      if (!move) break;
+      await this.playTurn(move);
+      turns += 1;
+    }
+    return this.summary();
+  }
+  end(result = null) {
+    this.ended = true;
+    this.result = result;
+    return this.summary();
+  }
+  summary() {
+    return {
+      id: this.gameId,
+      mode: "practice",
+      seeded_weakness: this.puzzle.weaknessCategory ?? null,
+      seed_puzzle_id: this.puzzle.PuzzleId ?? null,
+      start_fen: this.startFen,
+      current_fen: this.currentFen,
+      result: this.result,
+      moves: [...this.logs]
+    };
+  }
+};
+
+// core/targeting.js
+var PRACTICAL_TIME_ADVICE = "Practical/time is not a puzzle motif. Slow down and use a deliberate pre-move scan before committing.";
+function categoryOf(entry) {
+  return typeof entry === "string" ? entry : entry?.category;
+}
+function selectSeedableTarget(rankedWeaknesses, { getPuzzles = getPuzzlesForWeakness, bootstrapCategory = "tactical" } = {}) {
+  if (!Array.isArray(rankedWeaknesses)) throw new TypeError("rankedWeaknesses must be an array.");
+  const weaknesses = rankedWeaknesses.length > 0 ? rankedWeaknesses : [{ category: bootstrapCategory, bootstrap: true }];
+  const skipped = [];
+  for (const entry of weaknesses) {
+    const category = categoryOf(entry);
+    if (!WEAKNESS_CATEGORIES.includes(category)) {
+      throw new RangeError(`Unknown weakness category: ${category}`);
+    }
+    if (category === "practical_time") {
+      skipped.push({
+        category,
+        reason: "non_seedable",
+        advice: PRACTICAL_TIME_ADVICE
+      });
+      continue;
+    }
+    return {
+      weaknessCategory: category,
+      puzzles: getPuzzles(category, "start-slow"),
+      skipped
+    };
+  }
+  return {
+    weaknessCategory: null,
+    puzzles: [],
+    skipped
+  };
+}
+
+// core/orchestrator.js
+function defaultIdFactory({ puzzle, index }) {
+  if (globalThis.crypto?.randomUUID) return globalThis.crypto.randomUUID();
+  return `${puzzle.PuzzleId ?? "seed"}-${index}-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+}
+var TrainingOrchestrator = class {
+  constructor({
+    db: db2,
+    storage,
+    puzzleLibrary,
+    engineFactory,
+    idFactory = defaultIdFactory,
+    now = () => (/* @__PURE__ */ new Date()).toISOString()
+  }) {
+    if (!db2) throw new TypeError("db must be provided.");
+    if (!storage || typeof storage !== "object") {
+      throw new TypeError(
+        'storage adapter must be provided explicitly (e.g. `import * as storage from "../storage/db.js"` on desktop, or `../storage/mobileDb.js` on Capacitor). It is no longer imported by default so this module stays browser-safe.'
+      );
+    }
+    if (!puzzleLibrary?.filter) throw new TypeError("puzzleLibrary must provide filter(query).");
+    if (typeof engineFactory !== "function") throw new TypeError("engineFactory must be a function.");
+    this.db = db2;
+    this.storage = storage;
+    this.puzzleLibrary = puzzleLibrary;
+    this.engineFactory = engineFactory;
+    this.idFactory = idFactory;
+    this.now = now;
+    this.queue = [];
+    this.sessions = /* @__PURE__ */ new Map();
+  }
+  async getNextFocus(rankedWeaknesses) {
+    const weaknesses = rankedWeaknesses ?? await this.storage.getWeaknessTally(this.db);
+    return selectSeedableTarget(weaknesses, {
+      getPuzzles: (category, bucket) => getPuzzlesForWeakness(category, bucket, {
+        library: this.puzzleLibrary
+      })
+    });
+  }
+  async startTargetedSession(rankedWeaknesses) {
+    const weaknesses = rankedWeaknesses ?? await this.storage.getWeaknessTally(this.db);
+    const focus = await this.getNextFocus(weaknesses);
+    if (!focus.weaknessCategory) return { ...focus, activeSession: null, queued: [] };
+    if (focus.puzzles.length !== 2) {
+      throw new Error(`Start-slow targeting must return exactly two puzzles; received ${focus.puzzles.length}.`);
+    }
+    const queued = focus.puzzles.map((puzzle, index) => {
+      const id = this.idFactory({ puzzle, index, weaknessCategory: focus.weaknessCategory });
+      return {
+        id,
+        puzzle,
+        weaknessCategory: focus.weaknessCategory,
+        date: this.now(),
+        seeded_weakness: focus.weaknessCategory,
+        seed_puzzle_id: puzzle.PuzzleId ?? null,
+        start_fen: getMotifReadyFen(puzzle)
+      };
+    });
+    await this.storage.createQueuedGames(this.db, queued);
+    this.queue.push(...queued);
+    const activeSession2 = await this.startQueuedSession(queued[0].id);
+    return { ...focus, activeSession: activeSession2, queued };
+  }
+  async startQueuedSession(gameId) {
+    const descriptor = this.queue.find((item) => item.id === gameId);
+    if (!descriptor) throw new Error(`Queued session not found: ${gameId}`);
+    const session = new PracticeSession({
+      puzzle: {
+        ...descriptor.puzzle,
+        weaknessCategory: descriptor.weaknessCategory
+      },
+      engine: this.engineFactory(descriptor),
+      gameId,
+      now: this.now
+    });
+    await this.storage.transitionGameStatus(this.db, gameId, "in_progress");
+    this.sessions.set(gameId, session);
+    return session;
+  }
+  async startNextQueuedSession() {
+    for (const item of this.queue) {
+      const status = await this.storage.getGameStatus(this.db, item.id);
+      if (status === "queued") {
+        return await this.startQueuedSession(item.id);
+      }
+    }
+    return null;
+  }
+  async completeSession(sessionOrSummary) {
+    const summary = typeof sessionOrSummary?.summary === "function" ? sessionOrSummary.summary() : sessionOrSummary;
+    await this.storage.completeGameSession(this.db, summary);
+    this.sessions.delete(summary.id);
+    return summary.id;
+  }
+  async markAnalyzed(gameId) {
+    return await this.storage.transitionGameStatus(this.db, gameId, "analyzed");
+  }
+};
+
+// storage/mobileDb.js
+var mobileDb_exports = {};
+__export(mobileDb_exports, {
+  completeGameSession: () => completeGameSession,
+  createQueuedGame: () => createQueuedGame,
+  createQueuedGames: () => createQueuedGames,
+  getGameById: () => getGameById,
+  getGameHistory: () => getGameHistory,
+  getGameStatus: () => getGameStatus,
+  getMoveClassifications: () => getMoveClassifications,
+  getWeaknessTally: () => getWeaknessTally,
+  initDb: () => initDb,
+  saveGameSession: () => saveGameSession,
+  saveMoveClassification: () => saveMoveClassification,
+  saveWeaknessTags: () => saveWeaknessTags,
+  transitionGameStatus: () => transitionGameStatus
+});
+
+// node_modules/@capacitor-community/sqlite/dist/esm/index.js
+init_dist();
+
+// node_modules/@capacitor-community/sqlite/dist/esm/definitions.js
+var SQLiteConnection = class {
+  constructor(sqlite) {
+    this.sqlite = sqlite;
+    this._connectionDict = /* @__PURE__ */ new Map();
+  }
+  async initWebStore() {
+    try {
+      await this.sqlite.initWebStore();
+      return Promise.resolve();
+    } catch (err) {
+      return Promise.reject(err);
+    }
+  }
+  async saveToStore(database) {
+    try {
+      await this.sqlite.saveToStore({ database });
+      return Promise.resolve();
+    } catch (err) {
+      return Promise.reject(err);
+    }
+  }
+  async saveToLocalDisk(database) {
+    try {
+      await this.sqlite.saveToLocalDisk({ database });
+      return Promise.resolve();
+    } catch (err) {
+      return Promise.reject(err);
+    }
+  }
+  async getFromLocalDiskToStore(overwrite) {
+    const mOverwrite = overwrite != null ? overwrite : true;
+    try {
+      await this.sqlite.getFromLocalDiskToStore({ overwrite: mOverwrite });
+      return Promise.resolve();
+    } catch (err) {
+      return Promise.reject(err);
+    }
+  }
+  async echo(value) {
+    try {
+      const res = await this.sqlite.echo({ value });
+      return Promise.resolve(res);
+    } catch (err) {
+      return Promise.reject(err);
+    }
+  }
+  async isSecretStored() {
+    try {
+      const res = await this.sqlite.isSecretStored();
+      return Promise.resolve(res);
+    } catch (err) {
+      return Promise.reject(err);
+    }
+  }
+  async setEncryptionSecret(passphrase) {
+    try {
+      await this.sqlite.setEncryptionSecret({ passphrase });
+      return Promise.resolve();
+    } catch (err) {
+      return Promise.reject(err);
+    }
+  }
+  async changeEncryptionSecret(passphrase, oldpassphrase) {
+    try {
+      await this.sqlite.changeEncryptionSecret({
+        passphrase,
+        oldpassphrase
+      });
+      return Promise.resolve();
+    } catch (err) {
+      return Promise.reject(err);
+    }
+  }
+  async clearEncryptionSecret() {
+    try {
+      await this.sqlite.clearEncryptionSecret();
+      return Promise.resolve();
+    } catch (err) {
+      return Promise.reject(err);
+    }
+  }
+  async checkEncryptionSecret(passphrase) {
+    try {
+      const res = await this.sqlite.checkEncryptionSecret({
+        passphrase
+      });
+      return Promise.resolve(res);
+    } catch (err) {
+      return Promise.reject(err);
+    }
+  }
+  async addUpgradeStatement(database, upgrade) {
+    try {
+      if (database.endsWith(".db"))
+        database = database.slice(0, -3);
+      await this.sqlite.addUpgradeStatement({
+        database,
+        upgrade
+      });
+      return Promise.resolve();
+    } catch (err) {
+      return Promise.reject(err);
+    }
+  }
+  async createConnection(database, encrypted, mode, version, readonly) {
+    try {
+      if (database.endsWith(".db"))
+        database = database.slice(0, -3);
+      await this.sqlite.createConnection({
+        database,
+        encrypted,
+        mode,
+        version,
+        readonly
+      });
+      const conn = new SQLiteDBConnection(database, readonly, this.sqlite);
+      const connName = readonly ? `RO_${database}` : `RW_${database}`;
+      this._connectionDict.set(connName, conn);
+      return Promise.resolve(conn);
+    } catch (err) {
+      return Promise.reject(err);
+    }
+  }
+  async closeConnection(database, readonly) {
+    try {
+      if (database.endsWith(".db"))
+        database = database.slice(0, -3);
+      await this.sqlite.closeConnection({ database, readonly });
+      const connName = readonly ? `RO_${database}` : `RW_${database}`;
+      this._connectionDict.delete(connName);
+      return Promise.resolve();
+    } catch (err) {
+      return Promise.reject(err);
+    }
+  }
+  async isConnection(database, readonly) {
+    const res = {};
+    if (database.endsWith(".db"))
+      database = database.slice(0, -3);
+    const connName = readonly ? `RO_${database}` : `RW_${database}`;
+    res.result = this._connectionDict.has(connName);
+    return Promise.resolve(res);
+  }
+  async retrieveConnection(database, readonly) {
+    if (database.endsWith(".db"))
+      database = database.slice(0, -3);
+    const connName = readonly ? `RO_${database}` : `RW_${database}`;
+    if (this._connectionDict.has(connName)) {
+      const conn = this._connectionDict.get(connName);
+      if (typeof conn != "undefined")
+        return Promise.resolve(conn);
+      else {
+        return Promise.reject(`Connection ${database} is undefined`);
+      }
+    } else {
+      return Promise.reject(`Connection ${database} does not exist`);
+    }
+  }
+  async getNCDatabasePath(path, database) {
+    try {
+      const databasePath = await this.sqlite.getNCDatabasePath({
+        path,
+        database
+      });
+      return Promise.resolve(databasePath);
+    } catch (err) {
+      return Promise.reject(err);
+    }
+  }
+  async createNCConnection(databasePath, version) {
+    try {
+      await this.sqlite.createNCConnection({
+        databasePath,
+        version
+      });
+      const conn = new SQLiteDBConnection(databasePath, true, this.sqlite);
+      const connName = `RO_${databasePath})`;
+      this._connectionDict.set(connName, conn);
+      return Promise.resolve(conn);
+    } catch (err) {
+      return Promise.reject(err);
+    }
+  }
+  async closeNCConnection(databasePath) {
+    try {
+      await this.sqlite.closeNCConnection({ databasePath });
+      const connName = `RO_${databasePath})`;
+      this._connectionDict.delete(connName);
+      return Promise.resolve();
+    } catch (err) {
+      return Promise.reject(err);
+    }
+  }
+  async isNCConnection(databasePath) {
+    const res = {};
+    const connName = `RO_${databasePath})`;
+    res.result = this._connectionDict.has(connName);
+    return Promise.resolve(res);
+  }
+  async retrieveNCConnection(databasePath) {
+    if (this._connectionDict.has(databasePath)) {
+      const connName = `RO_${databasePath})`;
+      const conn = this._connectionDict.get(connName);
+      if (typeof conn != "undefined")
+        return Promise.resolve(conn);
+      else {
+        return Promise.reject(`Connection ${databasePath} is undefined`);
+      }
+    } else {
+      return Promise.reject(`Connection ${databasePath} does not exist`);
+    }
+  }
+  async isNCDatabase(databasePath) {
+    try {
+      const res = await this.sqlite.isNCDatabase({ databasePath });
+      return Promise.resolve(res);
+    } catch (err) {
+      return Promise.reject(err);
+    }
+  }
+  async retrieveAllConnections() {
+    return this._connectionDict;
+  }
+  async closeAllConnections() {
+    const delDict = /* @__PURE__ */ new Map();
+    try {
+      for (const key of this._connectionDict.keys()) {
+        const database = key.substring(3);
+        const readonly = key.substring(0, 3) === "RO_" ? true : false;
+        await this.sqlite.closeConnection({ database, readonly });
+        delDict.set(key, null);
+      }
+      for (const key of delDict.keys()) {
+        this._connectionDict.delete(key);
+      }
+      return Promise.resolve();
+    } catch (err) {
+      return Promise.reject(err);
+    }
+  }
+  async checkConnectionsConsistency() {
+    try {
+      const keys = [...this._connectionDict.keys()];
+      const openModes = [];
+      const dbNames = [];
+      for (const key of keys) {
+        openModes.push(key.substring(0, 2));
+        dbNames.push(key.substring(3));
+      }
+      const res = await this.sqlite.checkConnectionsConsistency({
+        dbNames,
+        openModes
+      });
+      if (!res.result)
+        this._connectionDict = /* @__PURE__ */ new Map();
+      return Promise.resolve(res);
+    } catch (err) {
+      this._connectionDict = /* @__PURE__ */ new Map();
+      return Promise.reject(err);
+    }
+  }
+  async importFromJson(jsonstring) {
+    try {
+      const ret = await this.sqlite.importFromJson({ jsonstring });
+      return Promise.resolve(ret);
+    } catch (err) {
+      return Promise.reject(err);
+    }
+  }
+  async isJsonValid(jsonstring) {
+    try {
+      const ret = await this.sqlite.isJsonValid({ jsonstring });
+      return Promise.resolve(ret);
+    } catch (err) {
+      return Promise.reject(err);
+    }
+  }
+  async copyFromAssets(overwrite) {
+    const mOverwrite = overwrite != null ? overwrite : true;
+    try {
+      await this.sqlite.copyFromAssets({ overwrite: mOverwrite });
+      return Promise.resolve();
+    } catch (err) {
+      return Promise.reject(err);
+    }
+  }
+  async getFromHTTPRequest(url, overwrite) {
+    const mOverwrite = overwrite != null ? overwrite : true;
+    try {
+      await this.sqlite.getFromHTTPRequest({ url, overwrite: mOverwrite });
+      return Promise.resolve();
+    } catch (err) {
+      return Promise.reject(err);
+    }
+  }
+  async isDatabaseEncrypted(database) {
+    if (database.endsWith(".db"))
+      database = database.slice(0, -3);
+    try {
+      const res = await this.sqlite.isDatabaseEncrypted({ database });
+      return Promise.resolve(res);
+    } catch (err) {
+      return Promise.reject(err);
+    }
+  }
+  async isInConfigEncryption() {
+    try {
+      const res = await this.sqlite.isInConfigEncryption();
+      return Promise.resolve(res);
+    } catch (err) {
+      return Promise.reject(err);
+    }
+  }
+  async isInConfigBiometricAuth() {
+    try {
+      const res = await this.sqlite.isInConfigBiometricAuth();
+      return Promise.resolve(res);
+    } catch (err) {
+      return Promise.reject(err);
+    }
+  }
+  async isDatabase(database) {
+    if (database.endsWith(".db"))
+      database = database.slice(0, -3);
+    try {
+      const res = await this.sqlite.isDatabase({ database });
+      return Promise.resolve(res);
+    } catch (err) {
+      return Promise.reject(err);
+    }
+  }
+  async getDatabaseList() {
+    try {
+      const res = await this.sqlite.getDatabaseList();
+      const values = res.values;
+      values.sort();
+      const ret = { values };
+      return Promise.resolve(ret);
+    } catch (err) {
+      return Promise.reject(err);
+    }
+  }
+  async getMigratableDbList(folderPath) {
+    const path = folderPath ? folderPath : "default";
+    try {
+      const res = await this.sqlite.getMigratableDbList({
+        folderPath: path
+      });
+      return Promise.resolve(res);
+    } catch (err) {
+      return Promise.reject(err);
+    }
+  }
+  async addSQLiteSuffix(folderPath, dbNameList) {
+    const path = folderPath ? folderPath : "default";
+    const dbList = dbNameList ? dbNameList : [];
+    try {
+      const res = await this.sqlite.addSQLiteSuffix({
+        folderPath: path,
+        dbNameList: dbList
+      });
+      return Promise.resolve(res);
+    } catch (err) {
+      return Promise.reject(err);
+    }
+  }
+  async deleteOldDatabases(folderPath, dbNameList) {
+    const path = folderPath ? folderPath : "default";
+    const dbList = dbNameList ? dbNameList : [];
+    try {
+      const res = await this.sqlite.deleteOldDatabases({
+        folderPath: path,
+        dbNameList: dbList
+      });
+      return Promise.resolve(res);
+    } catch (err) {
+      return Promise.reject(err);
+    }
+  }
+  async moveDatabasesAndAddSuffix(folderPath, dbNameList) {
+    const path = folderPath ? folderPath : "default";
+    const dbList = dbNameList ? dbNameList : [];
+    return this.sqlite.moveDatabasesAndAddSuffix({
+      folderPath: path,
+      dbNameList: dbList
+    });
+  }
+};
+var SQLiteDBConnection = class {
+  constructor(dbName, readonly, sqlite) {
+    this.dbName = dbName;
+    this.readonly = readonly;
+    this.sqlite = sqlite;
+  }
+  getConnectionDBName() {
+    return this.dbName;
+  }
+  getConnectionReadOnly() {
+    return this.readonly;
+  }
+  async open() {
+    try {
+      await this.sqlite.open({
+        database: this.dbName,
+        readonly: this.readonly
+      });
+      return Promise.resolve();
+    } catch (err) {
+      return Promise.reject(err);
+    }
+  }
+  async close() {
+    try {
+      await this.sqlite.close({
+        database: this.dbName,
+        readonly: this.readonly
+      });
+      return Promise.resolve();
+    } catch (err) {
+      return Promise.reject(err);
+    }
+  }
+  async beginTransaction() {
+    try {
+      const changes = await this.sqlite.beginTransaction({
+        database: this.dbName
+      });
+      return Promise.resolve(changes);
+    } catch (err) {
+      return Promise.reject(err);
+    }
+  }
+  async commitTransaction() {
+    try {
+      const changes = await this.sqlite.commitTransaction({
+        database: this.dbName
+      });
+      return Promise.resolve(changes);
+    } catch (err) {
+      return Promise.reject(err);
+    }
+  }
+  async rollbackTransaction() {
+    try {
+      const changes = await this.sqlite.rollbackTransaction({
+        database: this.dbName
+      });
+      return Promise.resolve(changes);
+    } catch (err) {
+      return Promise.reject(err);
+    }
+  }
+  async isTransactionActive() {
+    try {
+      const result = await this.sqlite.isTransactionActive({
+        database: this.dbName
+      });
+      return Promise.resolve(result);
+    } catch (err) {
+      return Promise.reject(err);
+    }
+  }
+  async loadExtension(path) {
+    try {
+      await this.sqlite.loadExtension({
+        database: this.dbName,
+        path,
+        readonly: this.readonly
+      });
+      return Promise.resolve();
+    } catch (err) {
+      return Promise.reject(err);
+    }
+  }
+  async enableLoadExtension(toggle) {
+    try {
+      await this.sqlite.enableLoadExtension({
+        database: this.dbName,
+        toggle,
+        readonly: this.readonly
+      });
+      return Promise.resolve();
+    } catch (err) {
+      return Promise.reject(err);
+    }
+  }
+  async getUrl() {
+    try {
+      const res = await this.sqlite.getUrl({
+        database: this.dbName,
+        readonly: this.readonly
+      });
+      return Promise.resolve(res);
+    } catch (err) {
+      return Promise.reject(err);
+    }
+  }
+  async getVersion() {
+    try {
+      const version = await this.sqlite.getVersion({
+        database: this.dbName,
+        readonly: this.readonly
+      });
+      return Promise.resolve(version);
+    } catch (err) {
+      return Promise.reject(err);
+    }
+  }
+  async getTableList() {
+    try {
+      const res = await this.sqlite.getTableList({
+        database: this.dbName,
+        readonly: this.readonly
+      });
+      return Promise.resolve(res);
+    } catch (err) {
+      return Promise.reject(err);
+    }
+  }
+  async execute(statements, transaction = true, isSQL92 = true) {
+    try {
+      if (!this.readonly) {
+        const res = await this.sqlite.execute({
+          database: this.dbName,
+          statements,
+          transaction,
+          readonly: false,
+          isSQL92
+        });
+        return Promise.resolve(res);
+      } else {
+        return Promise.reject("not allowed in read-only mode");
+      }
+    } catch (err) {
+      return Promise.reject(err);
+    }
+  }
+  async query(statement, values, isSQL92 = true) {
+    let res;
+    try {
+      if (values && values.length > 0) {
+        res = await this.sqlite.query({
+          database: this.dbName,
+          statement,
+          values,
+          readonly: this.readonly,
+          isSQL92: true
+        });
+      } else {
+        res = await this.sqlite.query({
+          database: this.dbName,
+          statement,
+          values: [],
+          readonly: this.readonly,
+          isSQL92
+        });
+      }
+      res = await this.reorderRows(res);
+      return Promise.resolve(res);
+    } catch (err) {
+      return Promise.reject(err);
+    }
+  }
+  async run(statement, values, transaction = true, returnMode = "no", isSQL92 = true) {
+    let res;
+    try {
+      if (!this.readonly) {
+        if (values && values.length > 0) {
+          res = await this.sqlite.run({
+            database: this.dbName,
+            statement,
+            values,
+            transaction,
+            readonly: false,
+            returnMode,
+            isSQL92: true
+          });
+        } else {
+          res = await this.sqlite.run({
+            database: this.dbName,
+            statement,
+            values: [],
+            transaction,
+            readonly: false,
+            returnMode,
+            isSQL92
+          });
+        }
+        res.changes = await this.reorderRows(res.changes);
+        return Promise.resolve(res);
+      } else {
+        return Promise.reject("not allowed in read-only mode");
+      }
+    } catch (err) {
+      return Promise.reject(err);
+    }
+  }
+  async executeSet(set, transaction = true, returnMode = "no", isSQL92 = true) {
+    let res;
+    try {
+      if (!this.readonly) {
+        res = await this.sqlite.executeSet({
+          database: this.dbName,
+          set,
+          transaction,
+          readonly: false,
+          returnMode,
+          isSQL92
+        });
+        res.changes = await this.reorderRows(res.changes);
+        return Promise.resolve(res);
+      } else {
+        return Promise.reject("not allowed in read-only mode");
+      }
+    } catch (err) {
+      return Promise.reject(err);
+    }
+  }
+  async isExists() {
+    try {
+      const res = await this.sqlite.isDBExists({
+        database: this.dbName,
+        readonly: this.readonly
+      });
+      return Promise.resolve(res);
+    } catch (err) {
+      return Promise.reject(err);
+    }
+  }
+  async isTable(table) {
+    try {
+      const res = await this.sqlite.isTableExists({
+        database: this.dbName,
+        table,
+        readonly: this.readonly
+      });
+      return Promise.resolve(res);
+    } catch (err) {
+      return Promise.reject(err);
+    }
+  }
+  async isDBOpen() {
+    try {
+      const res = await this.sqlite.isDBOpen({
+        database: this.dbName,
+        readonly: this.readonly
+      });
+      return Promise.resolve(res);
+    } catch (err) {
+      return Promise.reject(err);
+    }
+  }
+  async delete() {
+    try {
+      if (!this.readonly) {
+        await this.sqlite.deleteDatabase({
+          database: this.dbName,
+          readonly: false
+        });
+        return Promise.resolve();
+      } else {
+        return Promise.reject("not allowed in read-only mode");
+      }
+    } catch (err) {
+      return Promise.reject(err);
+    }
+  }
+  async createSyncTable() {
+    try {
+      if (!this.readonly) {
+        const res = await this.sqlite.createSyncTable({
+          database: this.dbName,
+          readonly: false
+        });
+        return Promise.resolve(res);
+      } else {
+        return Promise.reject("not allowed in read-only mode");
+      }
+    } catch (err) {
+      return Promise.reject(err);
+    }
+  }
+  async setSyncDate(syncdate) {
+    try {
+      if (!this.readonly) {
+        await this.sqlite.setSyncDate({
+          database: this.dbName,
+          syncdate,
+          readonly: false
+        });
+        return Promise.resolve();
+      } else {
+        return Promise.reject("not allowed in read-only mode");
+      }
+    } catch (err) {
+      return Promise.reject(err);
+    }
+  }
+  async getSyncDate() {
+    try {
+      const res = await this.sqlite.getSyncDate({
+        database: this.dbName,
+        readonly: this.readonly
+      });
+      let retDate = "";
+      if (res.syncDate > 0)
+        retDate = new Date(res.syncDate * 1e3).toISOString();
+      return Promise.resolve(retDate);
+    } catch (err) {
+      return Promise.reject(err);
+    }
+  }
+  async exportToJson(mode, encrypted = false) {
+    try {
+      const res = await this.sqlite.exportToJson({
+        database: this.dbName,
+        jsonexportmode: mode,
+        readonly: this.readonly,
+        encrypted
+      });
+      return Promise.resolve(res);
+    } catch (err) {
+      return Promise.reject(err);
+    }
+  }
+  async deleteExportedRows() {
+    try {
+      if (!this.readonly) {
+        await this.sqlite.deleteExportedRows({
+          database: this.dbName,
+          readonly: false
+        });
+        return Promise.resolve();
+      } else {
+        return Promise.reject("not allowed in read-only mode");
+      }
+    } catch (err) {
+      return Promise.reject(err);
+    }
+  }
+  async executeTransaction(txn, isSQL92 = true) {
+    let changes = 0;
+    let isActive = false;
+    if (!this.readonly) {
+      await this.sqlite.beginTransaction({
+        database: this.dbName
+      });
+      isActive = await this.sqlite.isTransactionActive({
+        database: this.dbName
+      });
+      if (!isActive) {
+        return Promise.reject("After Begin Transaction, no transaction active");
+      }
+      try {
+        for (const task of txn) {
+          if (typeof task !== "object" || !("statement" in task)) {
+            throw new Error("Error a task.statement must be provided");
+          }
+          if ("values" in task && task.values && task.values.length > 0) {
+            const retMode = task.statement.toUpperCase().includes("RETURNING") ? "all" : "no";
+            const ret = await this.sqlite.run({
+              database: this.dbName,
+              statement: task.statement,
+              values: task.values,
+              transaction: false,
+              readonly: false,
+              returnMode: retMode,
+              isSQL92
+            });
+            if (ret.changes.changes < 0) {
+              throw new Error("Error in transaction method run ");
+            }
+            changes += ret.changes.changes;
+          } else {
+            const ret = await this.sqlite.execute({
+              database: this.dbName,
+              statements: task.statement,
+              transaction: false,
+              readonly: false
+            });
+            if (ret.changes.changes < 0) {
+              throw new Error("Error in transaction method execute ");
+            }
+            changes += ret.changes.changes;
+          }
+        }
+        const retC = await this.sqlite.commitTransaction({
+          database: this.dbName
+        });
+        changes += retC.changes.changes;
+        const retChanges = { changes: { changes } };
+        return Promise.resolve(retChanges);
+      } catch (err) {
+        const msg = err.message ? err.message : err;
+        await this.sqlite.rollbackTransaction({
+          database: this.dbName
+        });
+        return Promise.reject(msg);
+      }
+    } else {
+      return Promise.reject("not allowed in read-only mode");
+    }
+  }
+  async reorderRows(res) {
+    const retRes = res;
+    if (res?.values && typeof res.values[0] === "object") {
+      if (Object.keys(res.values[0]).includes("ios_columns")) {
+        const columnList = res.values[0]["ios_columns"];
+        const iosRes = [];
+        for (let i = 1; i < res.values.length; i++) {
+          const rowJson = res.values[i];
+          const resRowJson = {};
+          for (const item of columnList) {
+            resRowJson[item] = rowJson[item];
+          }
+          iosRes.push(resRowJson);
+        }
+        retRes["values"] = iosRes;
+      }
+    }
+    return Promise.resolve(retRes);
+  }
+};
+
+// node_modules/@capacitor-community/sqlite/dist/esm/index.js
+var CapacitorSQLite = registerPlugin("CapacitorSQLite", {
+  web: () => Promise.resolve().then(() => (init_web(), web_exports)).then((m) => new m.CapacitorSQLiteWeb()),
+  electron: () => window.CapacitorCustomPlatform.plugins.CapacitorSQLite
+});
+
+// storage/mobileDb.js
+var SCHEMA_SQL = `
+PRAGMA foreign_keys = ON;
+
+CREATE TABLE IF NOT EXISTS games (
+  id TEXT PRIMARY KEY,
+  date TEXT,
+  mode TEXT CHECK(mode IN ('practice','imported')),
+  status TEXT NOT NULL DEFAULT 'completed' CHECK(status IN ('queued','in_progress','completed','analyzed')),
+  result TEXT,
+  seeded_weakness TEXT NULL,
+  seed_puzzle_id TEXT NULL,
+  start_fen TEXT,
+  current_fen TEXT,
+  import_source TEXT NULL,
+  external_game_id TEXT NULL,
+  player_color TEXT NULL CHECK(player_color IN ('white','black')),
+  white_player TEXT NULL,
+  black_player TEXT NULL,
+  analysis_engine TEXT NULL,
+  analysis_depth INTEGER NULL
+);
+
+CREATE TABLE IF NOT EXISTS moves (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  game_id TEXT REFERENCES games(id),
+  ply_number INTEGER,
+  fen_before TEXT,
+  move_played TEXT,
+  eval_cp_before INTEGER NULL,
+  eval_cp_after INTEGER NULL,
+  best_move TEXT NULL,
+  principal_variation TEXT NULL,
+  is_mate_score INTEGER NOT NULL DEFAULT 0 CHECK(is_mate_score IN (0,1)),
+  stockfish_response TEXT NULL,
+  timestamp TEXT,
+  timestamp_source TEXT NOT NULL DEFAULT 'live_recorded'
+    CHECK(timestamp_source IN ('live_recorded','posthoc_analysis'))
+);
+
+CREATE TABLE IF NOT EXISTS move_classifications (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  move_id INTEGER NOT NULL REFERENCES moves(id),
+  status TEXT NOT NULL CHECK(status IN ('classified','unclassified')),
+  category TEXT NULL CHECK(category IN (
+    'tactical',
+    'king_safety',
+    'pawn_structure',
+    'piece_activity',
+    'positional_judgment',
+    'endgame_technique',
+    'practical_time'
+  )),
+  severity TEXT NULL CHECK(severity IN ('low','medium','high')),
+  rationale TEXT NULL,
+  error TEXT NULL,
+  attempts INTEGER NOT NULL CHECK(attempts BETWEEN 1 AND 2),
+  model_used TEXT NOT NULL,
+  backend TEXT NOT NULL CHECK(backend IN ('claude','ollama')),
+  prompt_version TEXT NOT NULL,
+  prompt_hash TEXT NOT NULL,
+  analysis_timestamp TEXT NOT NULL,
+  is_current INTEGER NOT NULL DEFAULT 1 CHECK(is_current IN (0,1)),
+  CHECK(
+    (status = 'classified' AND category IS NOT NULL AND severity IS NOT NULL AND rationale IS NOT NULL)
+    OR
+    (status = 'unclassified' AND category IS NULL AND severity IS NULL AND error IS NOT NULL)
+  )
+);
+
+CREATE TABLE IF NOT EXISTS weakness_tags (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  move_id INTEGER REFERENCES moves(id),
+  category TEXT CHECK(category IN (
+    'tactical',
+    'king_safety',
+    'pawn_structure',
+    'piece_activity',
+    'positional_judgment',
+    'endgame_technique',
+    'practical_time'
+  )),
+  severity TEXT CHECK(severity IN ('low','medium','high')),
+  source TEXT DEFAULT 'ai_classification',
+  classification_id INTEGER NULL REFERENCES move_classifications(id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_games_seeded_weakness ON games(seeded_weakness);
+CREATE INDEX IF NOT EXISTS idx_moves_game_id ON moves(game_id);
+CREATE INDEX IF NOT EXISTS idx_weakness_tags_category ON weakness_tags(category);
+CREATE INDEX IF NOT EXISTS idx_move_classifications_move_id ON move_classifications(move_id);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_move_classifications_current
+  ON move_classifications(move_id) WHERE is_current = 1;
+`;
+var ALLOWED_MODES = /* @__PURE__ */ new Set(["practice", "imported"]);
+var SESSION_TRANSITIONS = Object.freeze({
+  queued: "in_progress",
+  in_progress: "completed",
+  completed: "analyzed"
+});
+var WEAKNESS_CATEGORIES2 = /* @__PURE__ */ new Set([
+  "tactical",
+  "king_safety",
+  "pawn_structure",
+  "piece_activity",
+  "positional_judgment",
+  "endgame_technique",
+  "practical_time"
+]);
+var SEVERITIES = /* @__PURE__ */ new Set(["low", "medium", "high"]);
+var ANALYSIS_BACKENDS = /* @__PURE__ */ new Set(["claude", "ollama"]);
+function assertDb(db2) {
+  if (!db2 || typeof db2.execute !== "function" || typeof db2.run !== "function" || typeof db2.query !== "function") {
+    throw new TypeError("db must be a CapacitorSQLite connection.");
+  }
+}
+function validateSessionHeader(summary) {
+  if (!summary || typeof summary !== "object") throw new TypeError("summary must be an object.");
+  if (typeof summary.id !== "string" || !summary.id.trim()) throw new TypeError("summary.id must be a non-empty string.");
+  if (!ALLOWED_MODES.has(summary.mode)) throw new RangeError(`Unsupported game mode: ${summary.mode}`);
+  if (!Array.isArray(summary.moves)) throw new TypeError("summary.moves must be an array.");
+}
+function normalizeNullableInteger(value, fieldName) {
+  if (value === null || value === void 0) return null;
+  if (!Number.isInteger(value)) throw new TypeError(`${fieldName} must be an integer or null.`);
+  return value;
+}
+function normalizeNullableText(value, fieldName) {
+  if (value === null || value === void 0) return null;
+  if (typeof value !== "string") throw new TypeError(`${fieldName} must be a string or null.`);
+  return value;
+}
+function normalizeMateFlag(value) {
+  if (value === true || value === 1) return 1;
+  if (value === false || value === 0 || value === null || value === void 0) return 0;
+  throw new TypeError("move.is_mate_score must be 0, 1, boolean, null, or undefined.");
+}
+function validateMove(move, gameId) {
+  if (!move || typeof move !== "object") throw new TypeError("Each move must be an object.");
+  if (move.game_id !== gameId) {
+    throw new Error(`Move game_id ${move.game_id} does not match session id ${gameId}.`);
+  }
+  if (!Number.isInteger(move.ply_number) || move.ply_number < 1) {
+    throw new TypeError("move.ply_number must be a positive integer.");
+  }
+  for (const field of ["fen_before", "move_played", "timestamp"]) {
+    if (typeof move[field] !== "string" || !move[field]) {
+      throw new TypeError(`move.${field} must be a non-empty string.`);
+    }
+  }
+  normalizeNullableInteger(move.eval_cp_before, "move.eval_cp_before");
+  normalizeNullableInteger(move.eval_cp_after, "move.eval_cp_after");
+  normalizeNullableText(move.best_move, "move.best_move");
+  normalizeNullableText(move.principal_variation, "move.principal_variation");
+  normalizeMateFlag(move.is_mate_score);
+  if (move.stockfish_response !== null && move.stockfish_response !== void 0 && typeof move.stockfish_response !== "string") {
+    throw new TypeError("move.stockfish_response must be a string or null.");
+  }
+}
+function timestampSourceFor(move, mode) {
+  const expected = mode === "imported" ? "posthoc_analysis" : "live_recorded";
+  const value = move.timestamp_source ?? expected;
+  if (value !== expected) {
+    throw new Error(`move.timestamp_source must be ${expected} for mode=${mode}.`);
+  }
+  return value;
+}
+async function withTransaction(db2, operation) {
+  await db2.execute("BEGIN IMMEDIATE");
+  try {
+    const result = await operation();
+    await db2.execute("COMMIT");
+    return result;
+  } catch (error) {
+    try {
+      await db2.execute("ROLLBACK");
+    } catch {
+    }
+    throw error;
+  }
+}
+async function ensureMoveAnalysisColumns(db2) {
+  const res = await db2.query("PRAGMA table_info(moves)");
+  const columns = new Set((res.values || []).map((column) => column.name));
+  const hadLegacyEval = columns.has("eval_cp");
+  const additions = [
+    ["eval_cp_before", "INTEGER NULL"],
+    ["eval_cp_after", "INTEGER NULL"],
+    ["best_move", "TEXT NULL"],
+    ["principal_variation", "TEXT NULL"],
+    ["is_mate_score", "INTEGER NOT NULL DEFAULT 0 CHECK(is_mate_score IN (0,1))"]
+  ];
+  for (const [name, sqlType] of additions) {
+    if (!columns.has(name)) {
+      await db2.execute(`ALTER TABLE moves ADD COLUMN ${name} ${sqlType}`);
+      columns.add(name);
+    }
+  }
+  if (hadLegacyEval) {
+    await db2.execute("UPDATE moves SET eval_cp_before = eval_cp WHERE eval_cp_before IS NULL AND eval_cp IS NOT NULL");
+  }
+}
+async function ensureGameStatusColumn(db2) {
+  const res = await db2.query("PRAGMA table_info(games)");
+  const columns = new Set((res.values || []).map((column) => column.name));
+  if (!columns.has("status")) {
+    await db2.execute(`ALTER TABLE games ADD COLUMN status TEXT NOT NULL DEFAULT 'completed'
+      CHECK(status IN ('queued','in_progress','completed','analyzed'))`);
+  }
+}
+async function ensureImportColumns(db2) {
+  const gameRes = await db2.query("PRAGMA table_info(games)");
+  const gameColumns = new Set((gameRes.values || []).map((column) => column.name));
+  const gameAdditions = [
+    ["import_source", "TEXT NULL"],
+    ["external_game_id", "TEXT NULL"],
+    ["player_color", "TEXT NULL CHECK(player_color IN ('white','black'))"],
+    ["white_player", "TEXT NULL"],
+    ["black_player", "TEXT NULL"],
+    ["analysis_engine", "TEXT NULL"],
+    ["analysis_depth", "INTEGER NULL"]
+  ];
+  for (const [name, type] of gameAdditions) {
+    if (!gameColumns.has(name)) await db2.execute(`ALTER TABLE games ADD COLUMN ${name} ${type}`);
+  }
+  const moveRes = await db2.query("PRAGMA table_info(moves)");
+  const moveColumns = new Set((moveRes.values || []).map((column) => column.name));
+  if (!moveColumns.has("timestamp_source")) {
+    await db2.execute(`ALTER TABLE moves ADD COLUMN timestamp_source TEXT NOT NULL DEFAULT 'live_recorded'
+      CHECK(timestamp_source IN ('live_recorded','posthoc_analysis'))`);
+  }
+  await db2.execute(`CREATE UNIQUE INDEX IF NOT EXISTS idx_games_import_identity
+    ON games(import_source, external_game_id)
+    WHERE import_source IS NOT NULL AND external_game_id IS NOT NULL`);
+}
+async function ensureWeaknessClassificationColumn(db2) {
+  const res = await db2.query("PRAGMA table_info(weakness_tags)");
+  const columns = new Set((res.values || []).map((column) => column.name));
+  if (!columns.has("classification_id")) {
+    await db2.execute("ALTER TABLE weakness_tags ADD COLUMN classification_id INTEGER NULL REFERENCES move_classifications(id)");
+  }
+}
+async function insertMoves(db2, summary) {
+  const insertMoveSql = `
+    INSERT INTO moves (
+      game_id,
+      ply_number,
+      fen_before,
+      move_played,
+      eval_cp_before,
+      eval_cp_after,
+      best_move,
+      principal_variation,
+      is_mate_score,
+      stockfish_response,
+      timestamp,
+      timestamp_source
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `;
+  for (const [index, move] of summary.moves.entries()) {
+    validateMove(move, summary.id);
+    if (move.ply_number !== index + 1) {
+      throw new Error(`Expected ply_number ${index + 1}, received ${move.ply_number}.`);
+    }
+    await db2.run(
+      insertMoveSql,
+      [
+        summary.id,
+        move.ply_number,
+        move.fen_before,
+        move.move_played,
+        normalizeNullableInteger(move.eval_cp_before, "move.eval_cp_before"),
+        normalizeNullableInteger(move.eval_cp_after, "move.eval_cp_after"),
+        normalizeNullableText(move.best_move, "move.best_move"),
+        normalizeNullableText(move.principal_variation, "move.principal_variation"),
+        normalizeMateFlag(move.is_mate_score),
+        move.stockfish_response ?? null,
+        move.timestamp,
+        timestampSourceFor(move, summary.mode)
+      ]
+    );
+  }
+}
+async function initDb(path) {
+  if (typeof path !== "string" || !path.trim()) throw new TypeError("path must be a non-empty string.");
+  const sqlite = new SQLiteConnection(CapacitorSQLite);
+  const db2 = await sqlite.createConnection(path, false, "no-encryption", 1, false);
+  await db2.open();
+  await db2.execute("PRAGMA foreign_keys = ON;");
+  const statements = SCHEMA_SQL.split(";").map((s) => s.trim()).filter((s) => s.length > 0);
+  for (const statement of statements) {
+    await db2.execute(statement + ";");
+  }
+  await ensureGameStatusColumn(db2);
+  await ensureMoveAnalysisColumns(db2);
+  await ensureWeaknessClassificationColumn(db2);
+  await ensureImportColumns(db2);
+  return db2;
+}
+async function saveGameSession(db2, summary) {
+  assertDb(db2);
+  validateSessionHeader(summary);
+  const insertGameSql = `
+    INSERT INTO games (
+      id, date, mode, status, result, seeded_weakness, seed_puzzle_id, start_fen, current_fen,
+      import_source, external_game_id, player_color, white_player, black_player,
+      analysis_engine, analysis_depth
+    ) VALUES (?, ?, ?, 'completed', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `;
+  const date = summary.date ?? summary.moves[0]?.timestamp ?? (/* @__PURE__ */ new Date()).toISOString();
+  return withTransaction(db2, async () => {
+    await db2.run(insertGameSql, [
+      summary.id,
+      date,
+      summary.mode,
+      summary.result ?? null,
+      summary.seeded_weakness ?? null,
+      summary.seed_puzzle_id ?? null,
+      summary.start_fen ?? null,
+      summary.current_fen ?? null,
+      summary.import_source ?? null,
+      summary.external_game_id ?? null,
+      summary.player_color ?? null,
+      summary.white_player ?? null,
+      summary.black_player ?? null,
+      summary.analysis_engine ?? null,
+      summary.analysis_depth ?? null
+    ]);
+    await insertMoves(db2, summary);
+    return summary.id;
+  });
+}
+function validateQueuedGame(game) {
+  if (!game || typeof game !== "object") throw new TypeError("game must be an object.");
+  if (typeof game.id !== "string" || !game.id) throw new TypeError("game.id must be a non-empty string.");
+  if (typeof game.start_fen !== "string" || !game.start_fen) throw new TypeError("game.start_fen must be a non-empty string.");
+}
+async function createQueuedGames(db2, games) {
+  assertDb(db2);
+  if (!Array.isArray(games) || games.length === 0) {
+    throw new TypeError("games must be a non-empty array.");
+  }
+  games.forEach(validateQueuedGame);
+  const insertSql = `
+    INSERT INTO games (
+      id, date, mode, status, result, seeded_weakness, seed_puzzle_id, start_fen, current_fen
+    ) VALUES (?, ?, 'practice', 'queued', NULL, ?, ?, ?, ?)
+  `;
+  return withTransaction(db2, async () => {
+    const ids = [];
+    for (const game of games) {
+      await db2.run(insertSql, [
+        game.id,
+        game.date ?? (/* @__PURE__ */ new Date()).toISOString(),
+        game.seeded_weakness ?? null,
+        game.seed_puzzle_id ?? null,
+        game.start_fen,
+        game.start_fen
+      ]);
+      ids.push(game.id);
+    }
+    return ids;
+  });
+}
+async function createQueuedGame(db2, game) {
+  const ids = await createQueuedGames(db2, [game]);
+  return ids[0];
+}
+async function getGameStatus(db2, gameId) {
+  assertDb(db2);
+  if (typeof gameId !== "string" || !gameId) throw new TypeError("gameId must be a non-empty string.");
+  const res = await db2.query("SELECT status FROM games WHERE id = ?", [gameId]);
+  if (!res.values || res.values.length === 0) throw new Error(`Game not found: ${gameId}`);
+  return res.values[0].status;
+}
+async function transitionGameStatus(db2, gameId, nextStatus) {
+  const current = await getGameStatus(db2, gameId);
+  const expected = SESSION_TRANSITIONS[current];
+  if (nextStatus !== expected) {
+    throw new Error(`Invalid game status transition: ${current} \u2192 ${nextStatus}. Expected ${expected ?? "no further transition"}.`);
+  }
+  const result = await db2.run("UPDATE games SET status = ? WHERE id = ? AND status = ?", [nextStatus, gameId, current]);
+  if (Number(result.changes?.changes) !== 1) throw new Error(`Game status changed concurrently: ${gameId}`);
+  return nextStatus;
+}
+async function completeGameSession(db2, summary) {
+  assertDb(db2);
+  validateSessionHeader(summary);
+  const date = summary.moves[0]?.timestamp ?? (/* @__PURE__ */ new Date()).toISOString();
+  return withTransaction(db2, async () => {
+    const result = await db2.run(`
+      UPDATE games
+      SET date = ?, mode = ?, status = 'completed', result = ?,
+          seeded_weakness = ?, seed_puzzle_id = ?, start_fen = ?, current_fen = ?
+      WHERE id = ? AND status = 'in_progress'
+    `, [
+      date,
+      summary.mode,
+      summary.result ?? null,
+      summary.seeded_weakness ?? null,
+      summary.seed_puzzle_id ?? null,
+      summary.start_fen ?? null,
+      summary.current_fen ?? null,
+      summary.id
+    ]);
+    if (Number(result.changes?.changes) !== 1) {
+      const res = await db2.query("SELECT status FROM games WHERE id = ?", [summary.id]);
+      const current = res.values && res.values.length > 0 ? res.values[0].status : null;
+      throw new Error(`Cannot complete game ${summary.id} from status ${current ?? "missing"}.`);
+    }
+    await insertMoves(db2, summary);
+    return summary.id;
+  });
+}
+async function getGameHistory(db2, { limit, weaknessCategory } = {}) {
+  assertDb(db2);
+  if (limit !== void 0 && (!Number.isInteger(limit) || limit < 1)) {
+    throw new RangeError("limit must be a positive integer when provided.");
+  }
+  if (weaknessCategory !== void 0 && weaknessCategory !== null && typeof weaknessCategory !== "string") {
+    throw new TypeError("weaknessCategory must be a string, null, or undefined.");
+  }
+  const where = weaknessCategory === void 0 ? "" : weaknessCategory === null ? " WHERE seeded_weakness IS NULL" : " WHERE seeded_weakness = ?";
+  const limitClause = limit === void 0 ? "" : " LIMIT ?";
+  const sql = `
+    SELECT id, date, mode, status, result, seeded_weakness, seed_puzzle_id, start_fen, current_fen,
+           import_source, external_game_id, player_color, white_player, black_player,
+           analysis_engine, analysis_depth
+    FROM games
+    ${where}
+    ORDER BY date DESC, rowid DESC
+    ${limitClause}
+  `;
+  const params = [];
+  if (weaknessCategory !== void 0 && weaknessCategory !== null) params.push(weaknessCategory);
+  if (limit !== void 0) params.push(limit);
+  const gamesRes = await db2.query(sql, params);
+  const games = gamesRes.values || [];
+  const movesSql = `
+    SELECT
+      id, game_id, ply_number, fen_before, move_played, eval_cp_before,
+      eval_cp_after, best_move, principal_variation, is_mate_score,
+      stockfish_response, timestamp, timestamp_source
+    FROM moves
+    WHERE game_id = ?
+    ORDER BY ply_number ASC, id ASC
+  `;
+  const result = [];
+  for (const game of games) {
+    const movesRes = await db2.query(movesSql, [game.id]);
+    result.push({
+      ...game,
+      moves: (movesRes.values || []).map((move) => ({ ...move }))
+    });
+  }
+  return result;
+}
+async function getGameById(db2, gameId) {
+  assertDb(db2);
+  if (typeof gameId !== "string" || !gameId) throw new TypeError("gameId must be a non-empty string.");
+  const gameRes = await db2.query(`
+    SELECT id, date, mode, status, result, seeded_weakness, seed_puzzle_id, start_fen, current_fen,
+           import_source, external_game_id, player_color, white_player, black_player,
+           analysis_engine, analysis_depth
+    FROM games WHERE id = ?
+  `, [gameId]);
+  if (!gameRes.values || gameRes.values.length === 0) throw new Error(`Game not found: ${gameId}`);
+  const game = gameRes.values[0];
+  const movesRes = await db2.query(`
+    SELECT id, game_id, ply_number, fen_before, move_played, eval_cp_before,
+           eval_cp_after, best_move, principal_variation, is_mate_score,
+           stockfish_response, timestamp, timestamp_source
+    FROM moves WHERE game_id = ? ORDER BY ply_number ASC, id ASC
+  `, [gameId]);
+  const moves = movesRes.values || [];
+  return { ...game, moves: moves.map((move) => ({ ...move })) };
+}
+async function saveWeaknessTags(db2, moveId, tags) {
+  assertDb(db2);
+  if (!Number.isInteger(moveId) || moveId < 1) throw new TypeError("moveId must be a positive integer.");
+  const normalizedTags = Array.isArray(tags) ? tags : [tags];
+  if (normalizedTags.length === 0 || normalizedTags.some((tag) => !tag || typeof tag !== "object")) {
+    throw new TypeError("tags must contain one or more tag objects.");
+  }
+  const insertTagSql = `
+    INSERT INTO weakness_tags (move_id, category, severity, source)
+    VALUES (?, ?, ?, ?)
+  `;
+  return withTransaction(db2, async () => {
+    const ids = [];
+    for (const tag of normalizedTags) {
+      if (typeof tag.category !== "string" || !tag.category) throw new TypeError("tag.category must be a non-empty string.");
+      if (typeof tag.severity !== "string" || !tag.severity) throw new TypeError("tag.severity must be a non-empty string.");
+      const source = tag.source ?? "ai_classification";
+      if (typeof source !== "string" || !source) throw new TypeError("tag.source must be a non-empty string.");
+      const result = await db2.run(insertTagSql, [moveId, tag.category, tag.severity, source]);
+      ids.push(Number(result.changes?.lastId));
+    }
+    return ids;
+  });
+}
+function validateProvenance(provenance) {
+  if (!provenance || typeof provenance !== "object") throw new TypeError("provenance must be an object.");
+  for (const field of ["model_used", "prompt_version", "prompt_hash", "analysis_timestamp"]) {
+    if (typeof provenance[field] !== "string" || !provenance[field]) {
+      throw new TypeError(`provenance.${field} must be a non-empty string.`);
+    }
+  }
+  if (!ANALYSIS_BACKENDS.has(provenance.backend)) {
+    throw new RangeError(`Unsupported analysis backend: ${provenance.backend}`);
+  }
+}
+async function saveMoveClassification(db2, moveId, result) {
+  assertDb(db2);
+  if (!Number.isInteger(moveId) || moveId < 1) throw new TypeError("moveId must be a positive integer.");
+  if (!result || typeof result !== "object") throw new TypeError("result must be an object.");
+  if (!["classified", "unclassified"].includes(result.status)) {
+    throw new RangeError(`Unsupported classification status: ${result.status}`);
+  }
+  if (!Number.isInteger(result.attempts) || result.attempts < 1 || result.attempts > 2) {
+    throw new RangeError("result.attempts must be 1 or 2.");
+  }
+  validateProvenance(result.provenance);
+  const value = result.value;
+  if (result.status === "classified") {
+    if (!value || typeof value !== "object") throw new TypeError("A classified result requires value.");
+    if (!WEAKNESS_CATEGORIES2.has(value.category)) throw new RangeError(`Unknown weakness category: ${value.category}`);
+    if (!SEVERITIES.has(value.severity)) throw new RangeError(`Unknown severity: ${value.severity}`);
+    if (typeof value.rationale !== "string" || !value.rationale) throw new TypeError("value.rationale must be a non-empty string.");
+  } else if (typeof result.error !== "string" || !result.error) {
+    throw new TypeError("An unclassified result requires a non-empty error.");
+  }
+  return withTransaction(db2, async () => {
+    const moveRes = await db2.query("SELECT id FROM moves WHERE id = ?", [moveId]);
+    if (!moveRes.values || moveRes.values.length === 0) throw new Error(`Move not found: ${moveId}`);
+    await db2.run("UPDATE move_classifications SET is_current = 0 WHERE move_id = ? AND is_current = 1", [moveId]);
+    const inserted = await db2.run(`
+      INSERT INTO move_classifications (
+        move_id, status, category, severity, rationale, error, attempts,
+        model_used, backend, prompt_version, prompt_hash, analysis_timestamp, is_current
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)
+    `, [
+      moveId,
+      result.status,
+      result.status === "classified" ? value.category : null,
+      result.status === "classified" ? value.severity : null,
+      result.status === "classified" ? value.rationale : null,
+      result.error ?? null,
+      result.attempts,
+      result.provenance.model_used,
+      result.provenance.backend,
+      result.provenance.prompt_version,
+      result.provenance.prompt_hash,
+      result.provenance.analysis_timestamp
+    ]);
+    const classificationId = Number(inserted.changes?.lastId);
+    if (result.status === "classified") {
+      await db2.run(`
+        INSERT INTO weakness_tags (move_id, category, severity, source, classification_id)
+        VALUES (?, ?, ?, 'ai_classification', ?)
+      `, [moveId, value.category, value.severity, classificationId]);
+    }
+    return classificationId;
+  });
+}
+async function getMoveClassifications(db2, moveId, { currentOnly = false } = {}) {
+  assertDb(db2);
+  if (!Number.isInteger(moveId) || moveId < 1) throw new TypeError("moveId must be a positive integer.");
+  const sql = `
+    SELECT id, move_id, status, category, severity, rationale, error, attempts,
+           model_used, backend, prompt_version, prompt_hash, analysis_timestamp, is_current
+    FROM move_classifications
+    WHERE move_id = ? ${currentOnly ? "AND is_current = 1" : ""}
+    ORDER BY id ASC
+  `;
+  const res = await db2.query(sql, [moveId]);
+  return (res.values || []).map((row) => ({ ...row }));
+}
+async function getWeaknessTally(db2, { sinceGameId } = {}) {
+  assertDb(db2);
+  let where = "WHERE (wt.classification_id IS NULL OR mc.is_current = 1)";
+  let params = [];
+  if (sinceGameId !== void 0) {
+    if (typeof sinceGameId !== "string" || !sinceGameId) {
+      throw new TypeError("sinceGameId must be a non-empty string when provided.");
+    }
+    const anchorRes = await db2.query("SELECT date, rowid AS insertion_order FROM games WHERE id = ?", [sinceGameId]);
+    if (!anchorRes.values || anchorRes.values.length === 0) throw new Error(`Game not found: ${sinceGameId}`);
+    const anchor = anchorRes.values[0];
+    if (anchor.date === null) {
+      where += " AND g.rowid >= ?";
+      params = [anchor.insertion_order];
+    } else {
+      where += " AND (g.date > ? OR (g.date = ? AND g.rowid >= ?))";
+      params = [anchor.date, anchor.date, anchor.insertion_order];
+    }
+  }
+  const sql = `
+    SELECT wt.category AS category, COUNT(*) AS count
+    FROM weakness_tags wt
+    JOIN moves m ON m.id = wt.move_id
+    JOIN games g ON g.id = m.game_id
+    LEFT JOIN move_classifications mc ON mc.id = wt.classification_id
+    ${where}
+    GROUP BY wt.category
+    ORDER BY count DESC, wt.category ASC
+  `;
+  const res = await db2.query(sql, params);
+  return (res.values || []).map((row) => ({ category: row.category, count: Number(row.count) }));
+}
+
+// storage/mobilePuzzleDb.js
+function normalizeThemeTags(themeTags = []) {
+  return [...new Set(themeTags.filter((theme) => typeof theme === "string" && theme))];
+}
+function normalizeStepRange(stepRange = [0, Number.POSITIVE_INFINITY]) {
+  if (!Array.isArray(stepRange) || stepRange.length !== 2) {
+    throw new TypeError("stepRange must be [min, max].");
+  }
+  const [min, max] = stepRange;
+  if (!Number.isFinite(min) || min < 0) throw new RangeError("stepRange minimum must be a non-negative finite number.");
+  if (!(Number.isFinite(max) || max === Number.POSITIVE_INFINITY) || max < min) {
+    throw new RangeError("stepRange maximum must be >= minimum.");
+  }
+  return [Math.trunc(min), max === Number.POSITIVE_INFINITY ? max : Math.trunc(max)];
+}
+function buildFilter(themeTags, stepRange) {
+  const themes = normalizeThemeTags(themeTags);
+  const [minSteps, maxSteps] = normalizeStepRange(stepRange);
+  const clauses = ["p.step_count >= ?"];
+  const params = [minSteps];
+  if (maxSteps !== Number.POSITIVE_INFINITY) {
+    clauses.push("p.step_count <= ?");
+    params.push(maxSteps);
+  }
+  if (themes.length) {
+    const placeholders = themes.map(() => "?").join(", ");
+    clauses.push(`p.puzzle_id IN (SELECT puzzle_id FROM puzzle_themes WHERE theme IN (${placeholders}))`);
+    params.push(...themes);
+  }
+  return { whereSql: clauses.join(" AND "), params };
+}
+function rowToPuzzle(row, themes) {
+  const moves = row.moves.trim().split(/\s+/).filter(Boolean);
+  return Object.freeze({
+    PuzzleId: row.puzzle_id,
+    FEN: row.fen,
+    Moves: row.moves,
+    Themes: themes.join(" "),
+    Rating: row.rating,
+    moves,
+    themes: Object.freeze([...themes]),
+    stepCount: row.step_count
+  });
+}
+var MobileSqlitePuzzleLibrary = class {
+  constructor(db2) {
+    if (!db2) {
+      throw new TypeError("db must be a capacitor sqlite connection object.");
+    }
+    this.db = db2;
+  }
+  async hydrate(row) {
+    if (!row) return null;
+    const res = await this.db.query(`
+      SELECT theme
+      FROM puzzle_themes
+      WHERE puzzle_id = ?
+      ORDER BY theme ASC
+    `, [row.puzzle_id]);
+    const themes = (res.values || []).map((item) => item.theme);
+    return rowToPuzzle(row, themes);
+  }
+  async filter({ themeTags = [], stepRange = [0, Number.POSITIVE_INFINITY], limit = 1e3 } = {}) {
+    if (!Number.isInteger(limit) || limit < 1 || limit > 1e4) {
+      throw new RangeError("limit must be an integer from 1 to 10000 for SQLite puzzle queries.");
+    }
+    const { whereSql, params } = buildFilter(themeTags, stepRange);
+    const res = await this.db.query(`
+      SELECT p.puzzle_id, p.fen, p.moves, p.rating, p.step_count
+      FROM puzzles p
+      WHERE ${whereSql}
+      ORDER BY p.puzzle_id ASC
+      LIMIT ?
+    `, [...params, limit]);
+    const rows = res.values || [];
+    const puzzles = [];
+    for (const row of rows) {
+      puzzles.push(await this.hydrate(row));
+    }
+    return puzzles;
+  }
+  async sample({ themeTags = [], stepRange = [0, Number.POSITIVE_INFINITY] } = {}, random = Math.random) {
+    const { whereSql, params } = buildFilter(themeTags, stepRange);
+    const countRes = await this.db.query(`
+      SELECT COUNT(*) AS count
+      FROM puzzles p
+      WHERE ${whereSql}
+    `, params);
+    const countRow = countRes.values?.[0];
+    const count = countRow ? Number(countRow.count) : 0;
+    if (count === 0) return null;
+    const randomValue = Number(random());
+    const bounded = Number.isFinite(randomValue) ? Math.max(0, Math.min(0.999999999999, randomValue)) : 0;
+    const offset = Math.floor(bounded * count);
+    const res = await this.db.query(`
+      SELECT p.puzzle_id, p.fen, p.moves, p.rating, p.step_count
+      FROM puzzles p
+      WHERE ${whereSql}
+      ORDER BY p.puzzle_id ASC
+      LIMIT 1 OFFSET ?
+    `, [...params, offset]);
+    const row = res.values?.[0];
+    return await this.hydrate(row);
+  }
+  async findLongest({ themeTags = [] } = {}) {
+    const { whereSql, params } = buildFilter(themeTags, [0, Number.POSITIVE_INFINITY]);
+    const res = await this.db.query(`
+      SELECT p.puzzle_id, p.fen, p.moves, p.rating, p.step_count
+      FROM puzzles p
+      WHERE ${whereSql}
+      ORDER BY p.step_count DESC, p.puzzle_id ASC
+      LIMIT 1
+    `, params);
+    const row = res.values?.[0];
+    return await this.hydrate(row);
+  }
+};
+
+// www/app.js
+var PIECES = {
+  p: "\u265F",
+  r: "\u265C",
+  n: "\u265E",
+  b: "\u265D",
+  q: "\u265B",
+  k: "\u265A",
+  P: "\u2659",
+  R: "\u2656",
+  N: "\u2658",
+  B: "\u2657",
+  Q: "\u2655",
+  K: "\u2654"
+};
+var ENGINE_TIMEOUT_MS = 15e3;
+var DB_NAME = "chess_analyst";
+var el = (id) => document.getElementById(id);
+var boardEl = el("chessboard");
+var moveLogEl = el("move-log");
+var pvMovesEl = el("pv-moves");
+var engineEvalEl = el("engine-eval");
+var moveStatusEl = el("move-status");
+var turnIndicatorEl = el("turn-indicator");
+var systemStatusEl = el("system-status");
+var targetNameEl = el("target-name");
+var targetDescEl = el("target-desc");
+var queueIndicatorEl = el("target-queue-indicator");
+var sessionBadgeEl = el("session-badge");
+var db = null;
+var orchestrator = null;
+var engineClient = null;
+var chess = new Chess();
+var activeSession = null;
+var selectedSquare = null;
+var boardFlipped = true;
+var isEngineThinking = false;
+function setStatus(text) {
+  if (systemStatusEl) systemStatusEl.textContent = `${text} \u2022 Cat Analyst`;
+}
+function setMoveStatus(text) {
+  if (moveStatusEl) moveStatusEl.textContent = text;
+}
+function setFatal(message, err) {
+  console.error(message, err);
+  setStatus("Startup problem");
+  setMoveStatus(message);
+}
+function stockfishWorkerUrl() {
+  return new URL("./vendor/stockfish/stockfish.js", document.baseURI).href;
+}
+async function initEngine() {
+  const workerUrl = stockfishWorkerUrl();
+  configureStockfish({ workerUrl });
+  engineClient = new StockfishWorkerClient({ workerUrl });
+  if (typeof engineClient.onInfo === "function") {
+    engineClient.onInfo(handleInfoLine);
+  } else if (engineClient.worker?.addEventListener) {
+    engineClient.worker.addEventListener("message", (event) => {
+      const line = typeof event.data === "string" ? event.data : event.data?.data;
+      if (typeof line === "string") handleInfoLine(line);
+    });
+  }
+  setStatus("Stockfish 18 Lite WASM active");
+}
+function handleInfoLine(line) {
+  if (typeof line !== "string" || !line.startsWith("info ")) return;
+  const cp = line.match(/\bscore\s+cp\s+(-?\d+)/);
+  const mate = line.match(/\bscore\s+mate\s+(-?\d+)/);
+  const pv = line.match(/\bpv\s+(.+)$/);
+  if (mate && engineEvalEl) {
+    engineEvalEl.textContent = `Eval: M${mate[1]}`;
+  } else if (cp && engineEvalEl) {
+    const score = (parseInt(cp[1], 10) / 100).toFixed(2);
+    engineEvalEl.textContent = `Eval: ${Number(score) > 0 ? "+" : ""}${score}`;
+  }
+  if (pv && pvMovesEl) pvMovesEl.textContent = pv[1];
+}
+function withTimeout(promise, ms) {
+  let handle;
+  const timeout = new Promise((resolve) => {
+    handle = setTimeout(() => resolve(null), ms);
+  });
+  return Promise.race([promise, timeout]).finally(() => clearTimeout(handle));
+}
+function squareName(fileIdx, rankIdx) {
+  return `${String.fromCharCode(97 + fileIdx)}${8 - rankIdx}`;
+}
+function legalTargetsFrom(square) {
+  try {
+    return chess.moves({ square, verbose: true }).map((m) => m.to);
+  } catch (err) {
+    return [];
+  }
+}
+function renderBoard() {
+  if (!boardEl) return;
+  boardEl.innerHTML = "";
+  const board = chess.board();
+  const targets = selectedSquare ? legalTargetsFrom(selectedSquare) : [];
+  const inCheck = typeof chess.inCheck === "function" ? chess.inCheck() : false;
+  const rankOrder = boardFlipped ? [...Array(8).keys()].reverse() : [...Array(8).keys()];
+  const fileOrder = boardFlipped ? [...Array(8).keys()].reverse() : [...Array(8).keys()];
+  for (const r of rankOrder) {
+    for (const f of fileOrder) {
+      const sq = squareName(f, r);
+      const piece = board[r][f];
+      const div = document.createElement("div");
+      const isLight = (r + f) % 2 === 0;
+      div.className = `square ${isLight ? "light" : "dark"}`;
+      div.dataset.square = sq;
+      if (sq === selectedSquare) div.classList.add("selected");
+      if (targets.includes(sq)) {
+        div.classList.add("legal-target");
+        if (piece) div.classList.add("has-piece");
+      }
+      if (inCheck && piece && piece.type === "k" && piece.color === chess.turn()) {
+        div.classList.add("in-check");
+      }
+      if (piece) {
+        const span = document.createElement("span");
+        span.textContent = piece.color === "w" ? PIECES[piece.type.toUpperCase()] : PIECES[piece.type];
+        span.className = `piece ${piece.color === "w" ? "white-piece" : "black-piece"}`;
+        div.appendChild(span);
+      }
+      div.addEventListener("click", () => handleSquareClick(sq));
+      boardEl.appendChild(div);
+    }
+  }
+  updateTurnUI();
+}
+function updateTurnUI() {
+  if (!turnIndicatorEl) return;
+  if (chess.isGameOver?.()) {
+    let reason = "Game over";
+    if (chess.isCheckmate?.()) reason = "Checkmate!";
+    else if (chess.isStalemate?.()) reason = "Stalemate";
+    else if (chess.isDraw?.()) reason = "Draw";
+    turnIndicatorEl.textContent = reason;
+    return;
+  }
+  const mine = chess.turn() === (boardFlipped ? "b" : "w");
+  turnIndicatorEl.textContent = mine ? "Your turn to pounce!" : "Stockfish is thinking\u2026";
+}
+function appendLog(ply, san) {
+  if (!moveLogEl) return;
+  const empty = moveLogEl.querySelector(".empty-log-message");
+  if (empty) empty.remove();
+  const div = document.createElement("div");
+  div.className = "log-entry";
+  div.innerHTML = `<span class="log-ply">${ply}.</span> <span class="log-move">${san}</span>`;
+  moveLogEl.appendChild(div);
+  moveLogEl.scrollTop = moveLogEl.scrollHeight;
+}
+async function handleSquareClick(square) {
+  if (!activeSession) {
+    setMoveStatus('Start a session first \u2014 tap "Pounce on Weakness".');
+    return;
+  }
+  if (isEngineThinking) return;
+  if (chess.isGameOver?.()) return;
+  const piece = chess.get(square);
+  if (selectedSquare) {
+    if (legalTargetsFrom(selectedSquare).includes(square)) {
+      await playPlayerMove(selectedSquare, square);
+      return;
+    }
+    selectedSquare = piece && piece.color === chess.turn() ? square : null;
+    renderBoard();
+    return;
+  }
+  if (piece && piece.color === chess.turn()) {
+    selectedSquare = square;
+    setMoveStatus(`Target selected: ${square}`);
+    renderBoard();
+  }
+}
+async function playPlayerMove(from, to) {
+  let move = null;
+  try {
+    move = chess.move({ from, to, promotion: "q" });
+  } catch (err) {
+    move = null;
+  }
+  if (!move) {
+    setMoveStatus("That move is not legal.");
+    selectedSquare = null;
+    renderBoard();
+    return;
+  }
+  selectedSquare = null;
+  appendLog(Math.ceil(chess.history().length / 2), move.san);
+  renderBoard();
+  const uci = move.from + move.to + (move.promotion ?? "");
+  isEngineThinking = true;
+  setMoveStatus("Orange Cat Stockfish is calculating\u2026");
+  updateTurnUI();
+  let result = null;
+  try {
+    result = await withTimeout(activeSession.playTurn(uci), ENGINE_TIMEOUT_MS);
+  } catch (err) {
+    console.error("playTurn failed", err);
+    setMoveStatus("Engine hiccup \u2014 your move stands, try again.");
+  } finally {
+    isEngineThinking = false;
+  }
+  if (!result) {
+    setMoveStatus("Engine did not reply in time. Tap a piece to try again.");
+    renderBoard();
+    return;
+  }
+  const engineMove = result.engineLog?.move_played;
+  if (engineMove) {
+    try {
+      const applied = chess.move({
+        from: engineMove.slice(0, 2),
+        to: engineMove.slice(2, 4),
+        promotion: engineMove.length > 4 ? engineMove[4] : void 0
+      });
+      if (applied) appendLog(Math.ceil(chess.history().length / 2), applied.san);
+    } catch (err) {
+      console.error("Could not apply engine move locally", err);
+    }
+  }
+  if (result.currentFen && chess.fen() !== result.currentFen) {
+    chess = new Chess(result.currentFen);
+  }
+  setMoveStatus(chess.isGameOver?.() ? 'Game over \u2014 tap "End Session" to save.' : "Your move.");
+  renderBoard();
+}
+function syncSessionToBoard(session) {
+  activeSession = session;
+  const fen = session?.currentFen ?? session?.startFen;
+  chess = fen ? new Chess(fen) : new Chess();
+  boardFlipped = chess.turn() === "b";
+  selectedSquare = null;
+  if (moveLogEl) {
+    moveLogEl.innerHTML = '<div class="empty-log-message">Motif-ready position loaded. Your move!</div>';
+  }
+  renderBoard();
+}
+async function startTargetedSession() {
+  try {
+    setMoveStatus("Finding your weakest spot\u2026");
+    const focus = await orchestrator.startTargetedSession();
+    if (!focus.weaknessCategory || !focus.activeSession) {
+      setMoveStatus(focus.advice ?? "No seedable weakness yet \u2014 play a few games first.");
+      return;
+    }
+    if (targetNameEl) targetNameEl.textContent = `${focus.weaknessCategory.replace(/_/g, " ")} motifs`;
+    if (targetDescEl) targetDescEl.textContent = `Start-slow: ${focus.queued.length} seed puzzles queued`;
+    if (queueIndicatorEl) queueIndicatorEl.textContent = `Seed 1 of ${focus.queued.length}`;
+    if (sessionBadgeEl) sessionBadgeEl.textContent = "Practice Mode";
+    syncSessionToBoard(focus.activeSession);
+    setMoveStatus("Session started. Pounce!");
+  } catch (err) {
+    setFatal("Could not start a session.", err);
+  }
+}
+async function startNextQueued() {
+  try {
+    const next = await orchestrator.startNextQueuedSession();
+    if (!next) {
+      setMoveStatus("No more seeds queued \u2014 start a new hunt.");
+      return;
+    }
+    if (queueIndicatorEl) queueIndicatorEl.textContent = "Seed 2 of 2";
+    syncSessionToBoard(next);
+    setMoveStatus("Second seed loaded.");
+  } catch (err) {
+    setFatal("Could not load the next seed.", err);
+  }
+}
+async function completeSession() {
+  if (!activeSession) {
+    setMoveStatus("No active session to save.");
+    return;
+  }
+  if (!window.confirm("End this session and save it?")) return;
+  try {
+    await orchestrator.completeSession(activeSession);
+    activeSession = null;
+    setMoveStatus("Session saved to your history.");
+    if (sessionBadgeEl) sessionBadgeEl.textContent = "Saved";
+    const focus = await orchestrator.getNextFocus();
+    if (targetNameEl && focus?.weaknessCategory) {
+      targetNameEl.textContent = `${focus.weaknessCategory.replace(/_/g, " ")} motifs`;
+      if (targetDescEl) targetDescEl.textContent = "Next focus ready";
+    }
+  } catch (err) {
+    setFatal("Could not save the session.", err);
+  }
+}
+async function boot() {
+  setStatus("Waking the cat\u2026");
+  try {
+    db = await initDb(DB_NAME);
+  } catch (err) {
+    setFatal("Could not open local storage. Sessions will not be saved.", err);
+    return;
+  }
+  let puzzleLibrary;
+  try {
+    puzzleLibrary = new MobileSqlitePuzzleLibrary(db);
+  } catch (err) {
+    setFatal("Could not open the puzzle library.", err);
+    return;
+  }
+  try {
+    await initEngine();
+  } catch (err) {
+    setFatal("Stockfish failed to start.", err);
+    return;
+  }
+  orchestrator = new TrainingOrchestrator({
+    db,
+    storage: mobileDb_exports,
+    puzzleLibrary,
+    engineFactory: () => engineClient
+  });
+  chess = new Chess();
+  renderBoard();
+  setStatus("Ready");
+  setMoveStatus('Tap "Pounce on Weakness" to begin.');
+  el("btn-start-target")?.addEventListener("click", startTargetedSession);
+  el("btn-next-queued")?.addEventListener("click", startNextQueued);
+  el("btn-complete")?.addEventListener("click", completeSession);
+  el("btn-flip")?.addEventListener("click", () => {
+    boardFlipped = !boardFlipped;
+    renderBoard();
+  });
+  el("tab-moves")?.addEventListener("click", () => {
+    el("tab-content-moves")?.classList.remove("hidden");
+    el("tab-content-preview")?.classList.add("hidden");
+    el("tab-moves")?.classList.add("active");
+    el("tab-preview")?.classList.remove("active");
+  });
+  el("tab-preview")?.addEventListener("click", () => {
+    el("tab-content-preview")?.classList.remove("hidden");
+    el("tab-content-moves")?.classList.add("hidden");
+    el("tab-preview")?.classList.add("active");
+    el("tab-moves")?.classList.remove("active");
+  });
+}
+document.addEventListener("DOMContentLoaded", boot);
+/*! Bundled license information:
+
+@capacitor/core/dist/index.js:
+  (*! Capacitor: https://capacitorjs.com/ - MIT License *)
+
+chess.js/dist/esm/chess.js:
+  (**
+   * @license
+   * Copyright (c) 2025, Jeff Hlywa (jhlywa@gmail.com)
+   * All rights reserved.
+   *
+   * Redistribution and use in source and binary forms, with or without
+   * modification, are permitted provided that the following conditions are met:
+   *
+   * 1. Redistributions of source code must retain the above copyright notice,
+   *    this list of conditions and the following disclaimer.
+   * 2. Redistributions in binary form must reproduce the above copyright notice,
+   *    this list of conditions and the following disclaimer in the documentation
+   *    and/or other materials provided with the distribution.
+   *
+   * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+   * AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+   * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
+   * ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
+   * LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
+   * CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
+   * SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
+   * INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
+   * CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
+   * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
+   * POSSIBILITY OF SUCH DAMAGE.
+   *)
+*/
+//# sourceMappingURL=bundle.js.map

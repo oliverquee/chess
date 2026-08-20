@@ -1,6 +1,5 @@
 import { getPuzzlesForWeakness } from '../data/themeMapping.js';
 import { getMotifReadyFen, PracticeSession } from '../engine/practiceSession.js';
-import * as defaultDbStorage from '../storage/db.js';
 import { selectSeedableTarget } from './targeting.js';
 
 function defaultIdFactory({ puzzle, index }) {
@@ -11,14 +10,19 @@ function defaultIdFactory({ puzzle, index }) {
 export class TrainingOrchestrator {
   constructor({
     db,
-    storage = defaultDbStorage,
+    storage,
     puzzleLibrary,
     engineFactory,
     idFactory = defaultIdFactory,
     now = () => new Date().toISOString(),
   }) {
     if (!db) throw new TypeError('db must be provided.');
-    if (!storage || typeof storage !== 'object') throw new TypeError('storage adapter must be provided.');
+    if (!storage || typeof storage !== 'object') {
+      throw new TypeError(
+        'storage adapter must be provided explicitly (e.g. `import * as storage from "../storage/db.js"` on desktop, '
+        + 'or `../storage/mobileDb.js` on Capacitor). It is no longer imported by default so this module stays browser-safe.'
+      );
+    }
     if (!puzzleLibrary?.filter) throw new TypeError('puzzleLibrary must provide filter(query).');
     if (typeof engineFactory !== 'function') throw new TypeError('engineFactory must be a function.');
     this.db = db;
@@ -107,3 +111,5 @@ export class TrainingOrchestrator {
     return await this.storage.transitionGameStatus(this.db, gameId, 'analyzed');
   }
 }
+
+
