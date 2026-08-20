@@ -29,6 +29,7 @@ Date: 2026-08-20
 | Corpus and profile | Existing native corpus remained at 7,200 puzzles; profile exposed all ten options | PASS |
 | Physical Fold3 discovery | Authorized `SM-F926B` available as serial `R3CT60CV7ZX` | PASS |
 | Dark-sprite visual integrity | Physical capture exposed incomplete dark sprites; all 60 were repaired from their complete themed silhouettes and passed alpha-bounds review | PASS |
+| Dark-piece contrast | Added a warm ivory silhouette outline to all 60 dark-side sprites; verified against both light and dark Red Panda board squares on the Android emulator | PASS |
 | Physical Fold3 install/upgrade | Installed in place on authorized `SM-F926B` (`R3CT60CV7ZX`); cold launch succeeded with no fatal runtime exception | PASS |
 | Physical corpus import | One-time puzzle pack downloaded and imported to the Fold3; both queued seeds loaded afterward | PASS |
 | Physical ten-theme sweep | All ten themes activated; every piece in the live position loaded at 128×128 with zero failed images | PASS |
