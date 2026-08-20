@@ -19,7 +19,7 @@ Date: 2026-08-20
 | --- | --- | --- |
 | Automated suite | 97 tests passed, 0 failed | PASS |
 | Asset completeness | All 120 expected theme/color/role paths exist | PASS |
-| Android build | Gradle 8.14.3 produced a 24,534,534-byte debug APK | PASS |
+| Android build | Gradle 8.14.3 produced a 24,611,006-byte debug APK (`SHA-256 8325ADC4E83F6E75CF8B7794D69CBB307D775D1045C6F02F804756EC8C6702F2`) | PASS |
 | Emulator install/upgrade | Installed with `adb install --no-streaming -r` on API 35 | PASS |
 | Ten-theme render sweep | Every theme activated; all 32 starting pieces loaded at natural width 128; zero failed images | PASS |
 | Persistence | Red Panda remained selected after force-stop/relaunch | PASS |
@@ -27,7 +27,15 @@ Date: 2026-08-20
 | Seed 2 handoff and turn | Seed 2 loaded; user `Qe1+`; exactly one reply `...Rxe1`; control returned | PASS |
 | Board flip | Existing renderer and automated legality suite remain green | PASS |
 | Corpus and profile | Existing native corpus remained at 7,200 puzzles; profile exposed all ten options | PASS |
-| Physical Fold3 discovery | `SM-F926B` was initially authorized, then disappeared before APK installation | PENDING |
+| Physical Fold3 discovery | Authorized `SM-F926B` available as serial `R3CT60CV7ZX` | PASS |
+| Dark-sprite visual integrity | Physical capture exposed incomplete dark sprites; all 60 were repaired from their complete themed silhouettes and passed alpha-bounds review | PASS |
+| Physical Fold3 install/upgrade | Installed in place on authorized `SM-F926B` (`R3CT60CV7ZX`); cold launch succeeded with no fatal runtime exception | PASS |
+| Physical corpus import | One-time puzzle pack downloaded and imported to the Fold3; both queued seeds loaded afterward | PASS |
+| Physical ten-theme sweep | All ten themes activated; every piece in the live position loaded at 128×128 with zero failed images | PASS |
+| Physical persistence | Red Panda remained selected after force-stop/cold launch; 32 pieces loaded with zero failures | PASS |
+| Physical Seed 1 Stockfish turn | User `Qxa8`; exactly one reply `...Qxb6+`; control returned | PASS |
+| Physical Seed 2 Stockfish turn | User `Be8`; exactly one reply `...Rxe8`; control returned | PASS |
+| Physical Chess.com WebView | Embedded Chess.com New Game page opened with the app's board palette overlay; host activity remained healthy | PASS |
 
 ## Scope boundary
 
