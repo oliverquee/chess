@@ -130,8 +130,9 @@ test('M8: Chess.com mobile theme overlay CSS integrity', () => {
   
   assert.ok(themeCss.includes('wc-chess-board'), 'Must target wc-chess-board');
   assert.ok(themeCss.includes('chess-board'), 'Must target chess-board');
+  assert.ok(themeCss.includes('background-image: conic-gradient'), 'Must override the current image-backed board');
+  assert.ok(themeCss.includes('background-size: 25% 25%'), 'Must render an 8x8 checkerboard');
   assert.ok(themeCss.includes('--chess-analyst-accent'), 'Must define accent token');
   assert.ok(!themeCss.includes('eval'), 'Must remain theme-only without engine injection');
 });
-
 

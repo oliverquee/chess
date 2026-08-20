@@ -17,6 +17,7 @@
  */
 
 import { Chess } from 'chess.js';
+import { CloseAction, InAppBrowser, ToolBarType } from '@capgo/capacitor-inappbrowser';
 import { TrainingOrchestrator } from '../core/orchestrator.js';
 import { CORPUS_MANIFEST } from '../data/corpusManifest.js';
 import { configureStockfish, StockfishWorkerClient } from '../engine/stockfishWorker.js';
@@ -24,6 +25,8 @@ import * as mobileStorage from '../storage/mobileDb.js';
 import { MobileSqlitePuzzleLibrary } from '../storage/mobilePuzzleDb.js';
 import { downloadAndImportCorpus, getCorpusStatus } from '../storage/corpusBootstrap.js';
 import { engineDifficultyLabel, renderProfile } from './profile.js';
+import chessComThemeCss from './chesscom-theme.css';
+import { createChessComView } from './chesscomView.js';
 
 const PIECES = {
   p: '♟', r: '♜', n: '♞', b: '♝', q: '♛', k: '♚',
@@ -64,6 +67,19 @@ let isEngineThinking = false;
 let engineTimeoutHandle = null;
 let settings = null;
 let corpusStatus = { populated: false, puzzleCount: 0, version: null };
+const chessComView = createChessComView({
+  inAppBrowser: InAppBrowser,
+  themeCss: chessComThemeCss,
+  browserOptions: {
+    toolbarType: ToolBarType.NAVIGATION,
+    title: 'Chess.com • Cat Theme',
+    backgroundColor: 'white',
+    activeNativeNavigationForWebview: true,
+    showReloadButton: true,
+    closeAction: CloseAction.HIDE,
+    enabledSafeTopMargin: true,
+  },
+});
 
 /* ---------------------------------------------------------------- *
  * Status helpers
@@ -396,6 +412,18 @@ function showPage(page) {
   if (profile) void refreshProfile();
 }
 
+async function openChessCom() {
+  setStatus('Opening themed Chess.com');
+  try {
+    await chessComView.open();
+    setStatus('Chess.com theme active');
+  } catch (error) {
+    console.error('Could not open embedded Chess.com', error);
+    setStatus('Chess.com could not open');
+    setMoveStatus('Embedded Chess.com failed to open. Check the connection and try again.');
+  }
+}
+
 function setCorpusProgress({ phase, percent }) {
   const progress = el('corpus-progress');
   const label = el('corpus-progress-label');
@@ -537,6 +565,7 @@ async function boot() {
   el('btn-download-corpus')?.addEventListener('click', () => importCorpus().catch(() => {}));
   el('nav-practice')?.addEventListener('click', () => showPage('practice'));
   el('nav-profile')?.addEventListener('click', () => showPage('profile'));
+  el('nav-chesscom')?.addEventListener('click', () => { void openChessCom(); });
   el('btn-flip')?.addEventListener('click', () => {
     boardFlipped = !boardFlipped;
     renderBoard();

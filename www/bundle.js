@@ -517,13 +517,154 @@ var init_dist = __esm({
   }
 });
 
-// node_modules/@capacitor-community/sqlite/dist/esm/web.js
+// node_modules/@capgo/capacitor-inappbrowser/dist/esm/web.js
 var web_exports = {};
 __export(web_exports, {
+  InAppBrowserWeb: () => InAppBrowserWeb
+});
+var InAppBrowserWeb;
+var init_web = __esm({
+  "node_modules/@capgo/capacitor-inappbrowser/dist/esm/web.js"() {
+    init_dist();
+    InAppBrowserWeb = class extends WebPlugin {
+      clearAllCookies() {
+        console.log("clearAllCookies");
+        return Promise.resolve();
+      }
+      clearCache() {
+        console.log("clearCache");
+        return Promise.resolve();
+      }
+      clearAllBrowsingData() {
+        console.log("clearAllBrowsingData");
+        return Promise.resolve();
+      }
+      async open(options) {
+        console.log("open", options);
+        return options;
+      }
+      async clearCookies(options) {
+        console.log("cleanCookies", options);
+        return;
+      }
+      async getCookies(options) {
+        return options;
+      }
+      async openWebView(options) {
+        console.log("openWebView", options);
+        return options;
+      }
+      async executeScript({ code }) {
+        console.log("code", code);
+        return code;
+      }
+      async close(options) {
+        console.log("close", options);
+        return;
+      }
+      async hide(options) {
+        console.log("hide", options);
+        return;
+      }
+      async show(options) {
+        console.log("show", options);
+        return;
+      }
+      async sendToBack(options) {
+        console.log("sendToBack not supported on web", options);
+        return;
+      }
+      async bringToFront(options) {
+        console.log("bringToFront not supported on web", options);
+        return;
+      }
+      async dispatchInputEvent(options) {
+        console.log("dispatchInputEvent not supported on web", options);
+        return;
+      }
+      async setUrl(options) {
+        console.log("setUrl", options.url);
+        return;
+      }
+      async reload(options) {
+        console.log("reload", options);
+        return;
+      }
+      async postMessage(options) {
+        console.log("postMessage", options);
+        return options;
+      }
+      async takeScreenshot(options) {
+        console.log("takeScreenshot not supported on web", options);
+        throw this.unimplemented("Screenshots are not supported on web.");
+      }
+      async goBack() {
+        console.log("goBack");
+        return;
+      }
+      async getPluginVersion() {
+        return { version: "web" };
+      }
+      async updateDimensions(options) {
+        console.log("updateDimensions", options);
+        return;
+      }
+      async handleProxyRequest(options) {
+        console.log("handleProxyRequest not supported on web", options);
+        return;
+      }
+      async setEnabledSafeTopMargin(options) {
+        console.log("setEnabledSafeTopMargin not supported on web", options);
+        return;
+      }
+      async setEnabledSafeBottomMargin(options) {
+        console.log("setEnabledSafeBottomMargin not supported on web", options);
+        return;
+      }
+      async openSecureWindow(options) {
+        const w = 600;
+        const h = 550;
+        const settings2 = [
+          ["width", w],
+          ["height", h],
+          ["left", screen.width / 2 - w / 2],
+          ["top", screen.height / 2 - h / 2]
+        ].map((x) => x.join("=")).join(",");
+        const popup = window.open(options.authEndpoint, "Authorization", settings2);
+        if (!popup) {
+          throw new Error("Failed to open secure window");
+        }
+        if (typeof popup.focus === "function") {
+          popup.focus();
+        }
+        return new Promise((resolve, reject) => {
+          const bc = new BroadcastChannel(options.broadcastChannelName || "oauth-channel");
+          bc.addEventListener("message", (event) => {
+            if (event.data.startsWith(options.redirectUri)) {
+              bc.close();
+              resolve({ redirectedUri: event.data });
+            } else {
+              bc.close();
+              reject(new Error("Redirect URI does not match, expected " + options.redirectUri + " but got " + event.data));
+            }
+          });
+          setTimeout(() => {
+            bc.close();
+            reject(new Error("The sign-in flow timed out"));
+          }, 5 * 6e4);
+        });
+      }
+    };
+  }
+});
+
+// node_modules/@capacitor-community/sqlite/dist/esm/web.js
+var web_exports2 = {};
+__export(web_exports2, {
   CapacitorSQLiteWeb: () => CapacitorSQLiteWeb
 });
 var CapacitorSQLiteWeb;
-var init_web = __esm({
+var init_web2 = __esm({
   "node_modules/@capacitor-community/sqlite/dist/esm/web.js"() {
     init_dist();
     CapacitorSQLiteWeb = class extends WebPlugin {
@@ -4451,6 +4592,54 @@ var Chess = class {
   }
 };
 
+// node_modules/@capgo/capacitor-inappbrowser/dist/esm/index.js
+init_dist();
+
+// node_modules/@capgo/capacitor-inappbrowser/dist/esm/definitions.js
+var BackgroundColor;
+(function(BackgroundColor2) {
+  BackgroundColor2["WHITE"] = "white";
+  BackgroundColor2["BLACK"] = "black";
+})(BackgroundColor || (BackgroundColor = {}));
+var ToolBarType;
+(function(ToolBarType2) {
+  ToolBarType2["ACTIVITY"] = "activity";
+  ToolBarType2["COMPACT"] = "compact";
+  ToolBarType2["NAVIGATION"] = "navigation";
+  ToolBarType2["BLANK"] = "blank";
+})(ToolBarType || (ToolBarType = {}));
+var InvisibilityMode;
+(function(InvisibilityMode2) {
+  InvisibilityMode2["AWARE"] = "AWARE";
+  InvisibilityMode2["FAKE_VISIBLE"] = "FAKE_VISIBLE";
+})(InvisibilityMode || (InvisibilityMode = {}));
+var CloseAction;
+(function(CloseAction2) {
+  CloseAction2["CLOSE"] = "close";
+  CloseAction2["HIDE"] = "hide";
+})(CloseAction || (CloseAction = {}));
+
+// node_modules/@capgo/capacitor-inappbrowser/dist/esm/index.js
+var CAPGO_PLUGIN_NAME = "CapgoInAppBrowser";
+var PREVIOUS_PLUGIN_NAME = "InAppBrowser";
+function resolvePluginName() {
+  if (!Capacitor.isNativePlatform()) {
+    return CAPGO_PLUGIN_NAME;
+  }
+  if (Capacitor.isPluginAvailable(CAPGO_PLUGIN_NAME)) {
+    return CAPGO_PLUGIN_NAME;
+  }
+  if (Capacitor.isPluginAvailable(PREVIOUS_PLUGIN_NAME)) {
+    return PREVIOUS_PLUGIN_NAME;
+  }
+  console.warn(`[InAppBrowser] Neither '${CAPGO_PLUGIN_NAME}' nor '${PREVIOUS_PLUGIN_NAME}' native plugin detected. Ensure @capgo/capacitor-inappbrowser native code is installed.`);
+  return CAPGO_PLUGIN_NAME;
+}
+var inAppBrowserImplementations = {
+  web: () => Promise.resolve().then(() => (init_web(), web_exports)).then((m) => new m.InAppBrowserWeb())
+};
+var InAppBrowser = registerPlugin(resolvePluginName(), inAppBrowserImplementations);
+
 // data/puzzleLoader.js
 var activeLibrary = null;
 function getPuzzleLibrary() {
@@ -6060,7 +6249,7 @@ var SQLiteDBConnection = class {
 
 // node_modules/@capacitor-community/sqlite/dist/esm/index.js
 var CapacitorSQLite = registerPlugin("CapacitorSQLite", {
-  web: () => Promise.resolve().then(() => (init_web(), web_exports)).then((m) => new m.CapacitorSQLiteWeb()),
+  web: () => Promise.resolve().then(() => (init_web2(), web_exports2)).then((m) => new m.CapacitorSQLiteWeb()),
   electron: () => window.CapacitorCustomPlatform.plugins.CapacitorSQLite
 });
 
@@ -7139,6 +7328,74 @@ function renderProfile({ container, stats, settings: settings2, corpusStatus: co
     </section>`;
 }
 
+// www/chesscom-theme.css
+var chesscom_theme_default = '/**\r\n * Chess.com Mobile Visual Theme Overlay \u2014 Orange Tabby Theme Pack\r\n * THEME-ONLY: Visual styling only. No board reading, no assistance during live play.\r\n */\r\n\r\n:root {\r\n  --chess-analyst-accent: #E67E22;\r\n  --chess-analyst-accent-dark: #D35400;\r\n  --chess-analyst-board-light: #F7EFE2;\r\n  --chess-analyst-board-dark: #C8854E;\r\n  --chess-analyst-board-frame: #7A4526;\r\n  --chess-analyst-highlight: rgba(230, 126, 34, 0.45);\r\n}\r\n\r\n/* Page Background */\r\nbody, #board-layout-main, .board-layout-main {\r\n  background-color: #FAF6F0 !important;\r\n}\r\n\r\n/* Web Component Board and Squares */\r\nwc-chess-board, chess-board, .board {\n  background-image: conic-gradient(\n    var(--chess-analyst-board-dark) 25%,\n    var(--chess-analyst-board-light) 0 50%,\n    var(--chess-analyst-board-dark) 0 75%,\n    var(--chess-analyst-board-light) 0\n  ) !important;\n  background-size: 25% 25% !important;\n  background-repeat: repeat !important;\n  border-radius: 10px !important;\n  box-shadow: 0 4px 16px rgba(110, 61, 48, 0.18) !important;\r\n  border: 2px solid var(--chess-analyst-board-frame) !important;\r\n}\r\n\r\nwc-chess-board .light, chess-board .light, .board .light,\r\n.square-light, [class*="square-"][class*="light"] {\r\n  background-color: var(--chess-analyst-board-light) !important;\r\n}\r\n\r\nwc-chess-board .dark, chess-board .dark, .board .dark,\r\n.square-dark, [class*="square-"][class*="dark"] {\r\n  background-color: var(--chess-analyst-board-dark) !important;\r\n}\r\n\r\n/* Move Highlights */\r\n.highlight, [class*="highlight"], .selected-square {\r\n  background-color: var(--chess-analyst-highlight) !important;\r\n}\r\n\r\n/* Buttons & UI Accents */\r\nbutton, [role="button"], .ui_v5-button-component {\r\n  border-radius: 10px !important;\r\n}\r\n\r\n.ui_v5-button-primary {\r\n  background-color: var(--chess-analyst-accent) !important;\r\n  border-color: var(--chess-analyst-accent-dark) !important;\r\n}\r\n';
+
+// www/chesscomView.js
+var CHESSCOM_URL = "https://www.chess.com/play/online";
+var THEME_STYLE_ID = "cat-analyst-theme-overlay";
+function buildThemeInjectionScript(css) {
+  if (typeof css !== "string" || !css.trim()) throw new TypeError("Chess.com theme CSS is required.");
+  return `(() => {
+    if (document.head && !document.getElementById(${JSON.stringify(THEME_STYLE_ID)})) {
+      const style = document.createElement('style');
+      style.id = ${JSON.stringify(THEME_STYLE_ID)};
+      style.textContent = ${JSON.stringify(css)};
+      document.head.appendChild(style);
+    }
+  })();`;
+}
+function createChessComView({ inAppBrowser, themeCss, browserOptions = {} }) {
+  if (!inAppBrowser?.openWebView || !inAppBrowser?.executeScript || !inAppBrowser?.addListener) {
+    throw new TypeError("A controllable embedded in-app browser is required.");
+  }
+  const injectionScript = buildThemeInjectionScript(themeCss);
+  let browserId = null;
+  let listenersReady = false;
+  async function inject(event = {}) {
+    if (!browserId || event.id && event.id !== browserId) return;
+    await inAppBrowser.executeScript({ id: browserId, code: injectionScript });
+  }
+  async function ensureListeners() {
+    if (listenersReady) return;
+    listenersReady = true;
+    await inAppBrowser.addListener("browserPageLoaded", (event) => {
+      void inject(event);
+    });
+    await inAppBrowser.addListener("urlChangeEvent", (event) => {
+      void inject(event);
+    });
+    await inAppBrowser.addListener("closeEvent", (event) => {
+      if (!event.id || event.id === browserId) browserId = null;
+    });
+  }
+  return {
+    get browserId() {
+      return browserId;
+    },
+    injectionScript,
+    async open() {
+      await ensureListeners();
+      if (browserId && inAppBrowser.show) {
+        await inAppBrowser.show({ id: browserId });
+        await inject({ id: browserId });
+        return browserId;
+      }
+      const result = await inAppBrowser.openWebView({
+        url: CHESSCOM_URL,
+        persistWebViewData: true,
+        isPresentAfterPageLoad: true,
+        preShowScript: injectionScript,
+        preShowScriptInjectionTime: "pageLoad",
+        ...browserOptions
+      });
+      browserId = result.id;
+      await inject({ id: browserId });
+      return browserId;
+    }
+  };
+}
+
 // www/app.js
 var PIECES = {
   p: "\u265F",
@@ -7178,6 +7435,19 @@ var boardFlipped = true;
 var isEngineThinking = false;
 var settings = null;
 var corpusStatus = { populated: false, puzzleCount: 0, version: null };
+var chessComView = createChessComView({
+  inAppBrowser: InAppBrowser,
+  themeCss: chesscom_theme_default,
+  browserOptions: {
+    toolbarType: ToolBarType.NAVIGATION,
+    title: "Chess.com \u2022 Cat Theme",
+    backgroundColor: "white",
+    activeNativeNavigationForWebview: true,
+    showReloadButton: true,
+    closeAction: CloseAction.HIDE,
+    enabledSafeTopMargin: true
+  }
+});
 function setStatus(text) {
   if (systemStatusEl) systemStatusEl.textContent = `${text} \u2022 Cat Analyst`;
 }
@@ -7442,6 +7712,17 @@ function showPage(page) {
   el("nav-profile")?.classList.toggle("active", profile);
   if (profile) void refreshProfile();
 }
+async function openChessCom() {
+  setStatus("Opening themed Chess.com");
+  try {
+    await chessComView.open();
+    setStatus("Chess.com theme active");
+  } catch (error) {
+    console.error("Could not open embedded Chess.com", error);
+    setStatus("Chess.com could not open");
+    setMoveStatus("Embedded Chess.com failed to open. Check the connection and try again.");
+  }
+}
 function setCorpusProgress({ phase, percent }) {
   const progress = el("corpus-progress");
   const label = el("corpus-progress-label");
@@ -7577,6 +7858,9 @@ async function boot() {
   }));
   el("nav-practice")?.addEventListener("click", () => showPage("practice"));
   el("nav-profile")?.addEventListener("click", () => showPage("profile"));
+  el("nav-chesscom")?.addEventListener("click", () => {
+    void openChessCom();
+  });
   el("btn-flip")?.addEventListener("click", () => {
     boardFlipped = !boardFlipped;
     renderBoard();

@@ -24,6 +24,7 @@ import { getSettings, setSetting } from '../storage/mobileDb.js';
 import { renderProfile } from '../www/profile.js';
 
 const HTML = readFileSync(new URL('../www/index.html', import.meta.url), 'utf8');
+const CAPACITOR_CONFIG = JSON.parse(readFileSync(new URL('../capacitor.config.json', import.meta.url), 'utf8'));
 
 /** Deterministic stand-in for the Stockfish worker client. */
 function stubEngine() {
@@ -142,12 +143,17 @@ test('app wiring: index.html loads the bundle as a module', () => {
     'index.html must load the bundled ES module, not the raw prototype script');
 });
 
+test('app wiring: native HTTP is enabled for CORS-safe corpus delivery', () => {
+  assert.equal(CAPACITOR_CONFIG.plugins?.CapacitorHttp?.enabled, true);
+});
+
 test('app wiring: the real entry HTML exposes an explicit first-run corpus gate and primary tabs', () => {
   const dom = new JSDOM(HTML);
   assert.ok(dom.window.document.getElementById('corpus-first-run'));
   assert.equal(dom.window.document.getElementById('btn-download-corpus')?.textContent.trim(), 'Download puzzle pack');
   assert.ok(dom.window.document.getElementById('nav-practice'));
   assert.ok(dom.window.document.getElementById('nav-profile'));
+  assert.equal(dom.window.document.getElementById('nav-chesscom')?.textContent.trim(), '♞Chess.com');
 });
 
 test('app wiring: profile page renders the intentional fresh-install empty states', () => {
@@ -201,4 +207,3 @@ test('app wiring: SQLite settings round-trip survives a new async connection wra
     assert.equal(reopened.chesscom_username, 'lastautumnleaf1');
   } finally { sqlite.close(); }
 });
-
