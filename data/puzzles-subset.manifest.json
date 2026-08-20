@@ -1,0 +1,33 @@
+{
+  "version": "m9-v1",
+  "source": "https://database.lichess.org/lichess_db_puzzle.csv.zst",
+  "license": "CC0",
+  "format": "jsonl+gzip",
+  "puzzleCount": 7200,
+  "sha256": "0c3be26539d64355de521908d884f4f48bc21d1eda46769f932d45910753cf6e",
+  "compressedBytes": 383839,
+  "selection": {
+    "categories": [
+      "tactical",
+      "king_safety",
+      "pawn_structure",
+      "piece_activity",
+      "positional_judgment",
+      "endgame_technique"
+    ],
+    "plyBuckets": {
+      "short": [2, 6],
+      "long": [8, 12]
+    },
+    "ratingRange": [800, 2200]
+  },
+  "counts": {
+    "tactical": { "total": 1200, "short": 600, "long": 600 },
+    "king_safety": { "total": 1200, "short": 600, "long": 600 },
+    "pawn_structure": { "total": 1200, "short": 600, "long": 600 },
+    "piece_activity": { "total": 1200, "short": 600, "long": 600 },
+    "positional_judgment": { "total": 1200, "short": 600, "long": 600 },
+    "endgame_technique": { "total": 1200, "short": 600, "long": 600 }
+  },
+  "url": "https://github.com/oliverquee/chess/releases/download/m9-corpus-v1/puzzles-subset.jsonl.gz"
+}

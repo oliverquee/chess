@@ -1,5 +1,31 @@
 # Decision log
 
+## 2026-08-20 — M9 mobile corpus delivery and durable profile settings
+
+**Status:** approved
+
+The mobile corpus is delivered as gzip-compressed JSON Lines rather than a
+prebuilt SQLite file. JSON Lines keeps the release artifact platform-neutral,
+allows every row to be validated before insertion, and supports one atomic
+transaction through the existing Capacitor SQLite connection. The curated
+artifact contains 7,200 puzzles and is 383,839 bytes compressed, so verifying
+the compressed SHA-256 before decompression remains safely bounded on the
+target device. Import is user-initiated, reports download/import progress, and
+records `corpus_version` and `corpus_sha256` only in the successful transaction.
+
+Selection scans the full official Lichess CC0 corpus and uses reservoir
+sampling across 48 balance cells: six seedable weakness categories, short and
+long ply buckets, and four rating bands from 800 through 2200. Each category
+contains 1,200 puzzles (600 short, 600 long), producing a non-arbitrary spread
+without shipping the multi-million-row source corpus to the phone.
+
+Profile preferences are rows in a mobile SQLite `settings` table. They are not
+stored in localStorage. Engine skill is read before constructing the
+`TrainingOrchestrator` and is passed into every new `PracticeSession`. Resetting
+training data removes games, moves, classifications, weakness tags, and
+settings while preserving the rebuildable downloaded corpus; corpus replacement
+has its own explicit re-download control.
+
 ## 2026-08-15 — Motif-ready Lichess practice start
 
 **Status:** approved
