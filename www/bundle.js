@@ -6941,7 +6941,7 @@ async function setSetting(db2, key, value) {
       throw new RangeError("engine_skill_level must be an integer from 0 to 20.");
     }
   }
-  if (key === "theme" && !["cat", "panda", "black-cat", "bunny", "fox"].includes(normalized)) {
+  if (key === "theme" && !["cat", "panda", "black-cat", "bunny", "fox", "corgi", "koala", "raccoon", "otter", "red-panda"].includes(normalized)) {
     throw new RangeError("Unknown animal theme.");
   }
   if (key === "cat_avatar" && !["orange-tabby", "tuxedo", "calico", "black-cat"].includes(normalized)) {
@@ -7268,7 +7268,12 @@ var THEMES = Object.freeze({
   panda: Object.freeze({ label: "Panda", emoji: "\u{1F43C}", subtitle: "Bamboo Panda Edition \u{1F38B}", engine: "Panda" }),
   "black-cat": Object.freeze({ label: "Black cat", emoji: "\u{1F408}\u200D\u2B1B", subtitle: "Midnight Cat Edition \u{1F319}", engine: "Midnight Cat" }),
   bunny: Object.freeze({ label: "Bunny", emoji: "\u{1F430}", subtitle: "Berry Bunny Edition \u{1F955}", engine: "Bunny" }),
-  fox: Object.freeze({ label: "Fox", emoji: "\u{1F98A}", subtitle: "Woodland Fox Edition \u{1F342}", engine: "Fox" })
+  fox: Object.freeze({ label: "Fox", emoji: "\u{1F98A}", subtitle: "Woodland Fox Edition \u{1F342}", engine: "Fox" }),
+  corgi: Object.freeze({ label: "Corgi", emoji: "\u{1F436}", subtitle: "Royal Corgi Edition \u{1F9B4}", engine: "Corgi" }),
+  koala: Object.freeze({ label: "Koala", emoji: "\u{1F428}", subtitle: "Eucalyptus Koala Edition \u{1F33F}", engine: "Koala" }),
+  raccoon: Object.freeze({ label: "Raccoon", emoji: "\u{1F99D}", subtitle: "Moonlit Raccoon Edition \u2728", engine: "Raccoon" }),
+  otter: Object.freeze({ label: "Otter", emoji: "\u{1F9A6}", subtitle: "River Otter Edition \u{1FAE7}", engine: "Otter" }),
+  "red-panda": Object.freeze({ label: "Red panda", emoji: "\u{1F43E}", subtitle: "Forest Red Panda Edition \u{1F38B}", engine: "Red Panda" })
 });
 function getTheme(themeId) {
   return THEMES[themeId] ?? THEMES.cat;
@@ -7294,7 +7299,12 @@ var CHESSCOM_COLORS = Object.freeze({
   panda: ["#2F855A", "#276749", "#F7FAF7", "#7BAE7F", "#202A24"],
   "black-cat": ["#9F7AEA", "#6B46C1", "#E9E6F2", "#4B4658", "#17151D"],
   bunny: ["#E96B9A", "#C44575", "#FFF4F7", "#DFA2B8", "#71495A"],
-  fox: ["#E76F31", "#B94718", "#FFF1DF", "#C76B3D", "#66321F"]
+  fox: ["#E76F31", "#B94718", "#FFF1DF", "#C76B3D", "#66321F"],
+  corgi: ["#D99024", "#9D5D12", "#FFF3D8", "#C68A43", "#5C371D"],
+  koala: ["#3C8D89", "#24615E", "#F0F4F3", "#879A99", "#394544"],
+  raccoon: ["#3F8C95", "#276069", "#EDF2F2", "#738386", "#30373A"],
+  otter: ["#2799A3", "#17636B", "#FFF0D5", "#A26D42", "#4C3022"],
+  "red-panda": ["#4F8B43", "#315E2B", "#FFF0D8", "#B95B32", "#5D2A20"]
 });
 function chessComCssForTheme(baseCss, themeId) {
   const colors = CHESSCOM_COLORS[themeId] ?? CHESSCOM_COLORS.cat;
@@ -7609,10 +7619,21 @@ function renderBoard() {
         div.classList.add("in-check");
       }
       if (piece) {
-        const span = document.createElement("span");
-        span.textContent = piece.color === "w" ? PIECES[piece.type.toUpperCase()] : PIECES[piece.type];
-        span.className = `piece ${piece.color === "w" ? "white-piece" : "black-piece"}`;
-        div.appendChild(span);
+        const themeId = settings?.theme ?? "cat";
+        const img = document.createElement("img");
+        img.src = `assets/pieces/${themeId}/${piece.color}/${piece.type}.png`;
+        img.alt = `${piece.color === "w" ? "White" : "Black"} ${piece.type}`;
+        img.className = `piece animal-piece ${piece.color === "w" ? "white-piece" : "black-piece"}`;
+        img.draggable = false;
+        img.dataset.piece = `${piece.color}${piece.type}`;
+        img.addEventListener("error", () => {
+          const fallback = document.createElement("span");
+          fallback.textContent = piece.color === "w" ? PIECES[piece.type.toUpperCase()] : PIECES[piece.type];
+          fallback.className = `piece ${piece.color === "w" ? "white-piece" : "black-piece"}`;
+          fallback.dataset.piece = `${piece.color}${piece.type}`;
+          img.replaceWith(fallback);
+        }, { once: true });
+        div.appendChild(img);
       }
       div.addEventListener("click", () => handleSquareClick(sq));
       boardEl.appendChild(div);

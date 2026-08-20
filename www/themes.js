@@ -4,6 +4,11 @@ export const THEMES = Object.freeze({
   'black-cat': Object.freeze({ label: 'Black cat', emoji: '🐈‍⬛', subtitle: 'Midnight Cat Edition 🌙', engine: 'Midnight Cat' }),
   bunny: Object.freeze({ label: 'Bunny', emoji: '🐰', subtitle: 'Berry Bunny Edition 🥕', engine: 'Bunny' }),
   fox: Object.freeze({ label: 'Fox', emoji: '🦊', subtitle: 'Woodland Fox Edition 🍂', engine: 'Fox' }),
+  corgi: Object.freeze({ label: 'Corgi', emoji: '🐶', subtitle: 'Royal Corgi Edition 🦴', engine: 'Corgi' }),
+  koala: Object.freeze({ label: 'Koala', emoji: '🐨', subtitle: 'Eucalyptus Koala Edition 🌿', engine: 'Koala' }),
+  raccoon: Object.freeze({ label: 'Raccoon', emoji: '🦝', subtitle: 'Moonlit Raccoon Edition ✨', engine: 'Raccoon' }),
+  otter: Object.freeze({ label: 'Otter', emoji: '🦦', subtitle: 'River Otter Edition 🫧', engine: 'Otter' }),
+  'red-panda': Object.freeze({ label: 'Red panda', emoji: '🐾', subtitle: 'Forest Red Panda Edition 🎋', engine: 'Red Panda' }),
 });
 
 export function getTheme(themeId) {
@@ -34,6 +39,11 @@ const CHESSCOM_COLORS = Object.freeze({
   'black-cat': ['#9F7AEA', '#6B46C1', '#E9E6F2', '#4B4658', '#17151D'],
   bunny: ['#E96B9A', '#C44575', '#FFF4F7', '#DFA2B8', '#71495A'],
   fox: ['#E76F31', '#B94718', '#FFF1DF', '#C76B3D', '#66321F'],
+  corgi: ['#D99024', '#9D5D12', '#FFF3D8', '#C68A43', '#5C371D'],
+  koala: ['#3C8D89', '#24615E', '#F0F4F3', '#879A99', '#394544'],
+  raccoon: ['#3F8C95', '#276069', '#EDF2F2', '#738386', '#30373A'],
+  otter: ['#2799A3', '#17636B', '#FFF0D5', '#A26D42', '#4C3022'],
+  'red-panda': ['#4F8B43', '#315E2B', '#FFF0D8', '#B95B32', '#5D2A20'],
 });
 
 export function chessComCssForTheme(baseCss, themeId) {

@@ -85,13 +85,13 @@ test('animal themes render and persist as selectable profile settings', async ()
   const { sync, connection } = createProfileDb();
   try {
     const db = connection();
-    for (const theme of ['cat', 'panda', 'black-cat', 'bunny', 'fox']) {
+    for (const theme of ['cat', 'panda', 'black-cat', 'bunny', 'fox', 'corgi', 'koala', 'raccoon', 'otter', 'red-panda']) {
       await setSetting(db, 'theme', theme);
       const settings = await getSettings(connection());
       assert.equal(settings.theme, theme);
       const container = render(await getProfileStats(db), settings);
       assert.equal(container.querySelector('[name="theme"]').value, theme);
-      assert.equal(container.querySelectorAll('[name="theme"] option').length, 5);
+      assert.equal(container.querySelectorAll('[name="theme"] option').length, 10);
     }
     await assert.rejects(() => setSetting(db, 'theme', 'unknown-animal'), /Unknown animal theme/);
   } finally { sync.close(); }

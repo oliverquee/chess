@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { Chess } from 'chess.js';
 import { getMotifReadyFen } from '../engine/practiceSession.js';
@@ -127,11 +127,22 @@ test('M8: Orange Cat Theme tokens and stylesheet integrity', () => {
 
 test('animal theme packs preserve shared board tokens', () => {
   const cssContent = readFileSync(resolve('www/index.css'), 'utf8');
-  for (const theme of ['panda', 'black-cat', 'bunny', 'fox']) {
+  for (const theme of ['panda', 'black-cat', 'bunny', 'fox', 'corgi', 'koala', 'raccoon', 'otter', 'red-panda']) {
     assert.ok(cssContent.includes(`:root[data-theme="${theme}"]`), `Missing ${theme} theme pack`);
   }
-  assert.equal((cssContent.match(/--board-light:/g) ?? []).length, 5);
-  assert.equal((cssContent.match(/--board-dark:/g) ?? []).length, 5);
+  assert.equal((cssContent.match(/--board-light:/g) ?? []).length, 10);
+  assert.equal((cssContent.match(/--board-dark:/g) ?? []).length, 10);
+});
+
+test('all ten themes ship complete light and dark animal sprite sets', () => {
+  const themes = ['cat', 'panda', 'black-cat', 'bunny', 'fox', 'corgi', 'koala', 'raccoon', 'otter', 'red-panda'];
+  for (const theme of themes) {
+    for (const color of ['w', 'b']) {
+      for (const role of ['k', 'q', 'b', 'n', 'r', 'p']) {
+        assert.ok(existsSync(resolve(`www/assets/pieces/${theme}/${color}/${role}.png`)), `Missing ${theme}/${color}/${role}`);
+      }
+    }
+  }
 });
 
 test('M8: Chess.com mobile theme overlay CSS integrity', () => {

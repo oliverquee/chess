@@ -134,6 +134,11 @@ body {
   --board-light: #FFF1DF; --board-dark: #C76B3D; --board-frame: #66321F;
   --square-selected: rgba(231,111,49,.56); --square-last-move: rgba(241,174,77,.5); --square-target: rgba(102,50,31,.3);
 }
+:root[data-theme="corgi"] { --cat-ginger:#D99024; --cat-ginger-dark:#9D5D12; --cat-ginger-hover:#B77218; --cat-ginger-light:#FFF1D2; --cat-card-elevated:#FFF5E2; --cat-interactive-bg:#F3E1C4; --cat-border-color:#DFC59F; --cat-terracotta:#795234; --cat-terracotta-dark:#5C371D; --cat-ink-primary:#332419; --board-light:#FFF3D8; --board-dark:#C68A43; --board-frame:#5C371D; }
+:root[data-theme="koala"] { --cat-ginger:#3C8D89; --cat-ginger-dark:#24615E; --cat-ginger-hover:#307873; --cat-ginger-light:#E2F1EF; --cat-card-elevated:#EEF5F4; --cat-interactive-bg:#DCE9E7; --cat-border-color:#B8CFCC; --cat-terracotta:#596D6B; --cat-terracotta-dark:#394544; --cat-ink-primary:#26302F; --board-light:#F0F4F3; --board-dark:#879A99; --board-frame:#394544; }
+:root[data-theme="raccoon"] { --cat-ginger:#3F8C95; --cat-ginger-dark:#276069; --cat-ginger-hover:#347680; --cat-ginger-light:#E2F0F1; --cat-card-elevated:#EDF3F3; --cat-interactive-bg:#DCE6E7; --cat-border-color:#B8C9CB; --cat-terracotta:#59676A; --cat-terracotta-dark:#30373A; --cat-ink-primary:#252B2D; --board-light:#EDF2F2; --board-dark:#738386; --board-frame:#30373A; }
+:root[data-theme="otter"] { --cat-ginger:#2799A3; --cat-ginger-dark:#17636B; --cat-ginger-hover:#1E7E87; --cat-ginger-light:#DFF4F5; --cat-card-elevated:#FFF3DE; --cat-interactive-bg:#EEDDC5; --cat-border-color:#D7BFA4; --cat-terracotta:#73533D; --cat-terracotta-dark:#4C3022; --cat-ink-primary:#33271F; --board-light:#FFF0D5; --board-dark:#A26D42; --board-frame:#4C3022; }
+:root[data-theme="red-panda"] { --cat-ginger:#4F8B43; --cat-ginger-dark:#315E2B; --cat-ginger-hover:#3F7436; --cat-ginger-light:#E7F2E3; --cat-card-elevated:#FFF0D8; --cat-interactive-bg:#EAD8BE; --cat-border-color:#D4B994; --cat-terracotta:#87472F; --cat-terracotta-dark:#5D2A20; --cat-ink-primary:#34231D; --board-light:#FFF0D8; --board-dark:#B95B32; --board-frame:#5D2A20; }
 
 /* Header */
 .app-header {
@@ -628,6 +633,20 @@ body {
   font-size: 0.7rem;
   font-weight: 700;
   color: var(--cat-terracotta);
+}
+
+.animal-piece {
+  width: 92%;
+  height: 92%;
+  object-fit: contain;
+  pointer-events: none;
+  filter: drop-shadow(0 2px 2px rgba(44, 36, 30, 0.28));
+}
+
+.piece.animal-piece.white-piece,
+.piece.animal-piece.black-piece {
+  color: initial;
+  text-shadow: none;
 }
 
 /* M9 profile, corpus bootstrap, and bottom navigation */

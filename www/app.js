@@ -197,12 +197,21 @@ function renderBoard() {
       }
 
       if (piece) {
-        const span = document.createElement('span');
-        span.textContent = piece.color === 'w'
-          ? PIECES[piece.type.toUpperCase()]
-          : PIECES[piece.type];
-        span.className = `piece ${piece.color === 'w' ? 'white-piece' : 'black-piece'}`;
-        div.appendChild(span);
+        const themeId = settings?.theme ?? 'cat';
+        const img = document.createElement('img');
+        img.src = `assets/pieces/${themeId}/${piece.color}/${piece.type}.png`;
+        img.alt = `${piece.color === 'w' ? 'White' : 'Black'} ${piece.type}`;
+        img.className = `piece animal-piece ${piece.color === 'w' ? 'white-piece' : 'black-piece'}`;
+        img.draggable = false;
+        img.dataset.piece = `${piece.color}${piece.type}`;
+        img.addEventListener('error', () => {
+          const fallback = document.createElement('span');
+          fallback.textContent = piece.color === 'w' ? PIECES[piece.type.toUpperCase()] : PIECES[piece.type];
+          fallback.className = `piece ${piece.color === 'w' ? 'white-piece' : 'black-piece'}`;
+          fallback.dataset.piece = `${piece.color}${piece.type}`;
+          img.replaceWith(fallback);
+        }, { once: true });
+        div.appendChild(img);
       }
 
       div.addEventListener('click', () => handleSquareClick(sq));
