@@ -6434,14 +6434,23 @@ function timestampSourceFor(move, mode) {
   return value;
 }
 async function withTransaction(db2, operation) {
-  await db2.execute("BEGIN IMMEDIATE");
+  const usesNativeTransactionApi = typeof db2.beginTransaction === "function" && typeof db2.commitTransaction === "function" && typeof db2.rollbackTransaction === "function";
+  if (usesNativeTransactionApi) await db2.beginTransaction();
+  else await db2.execute("BEGIN IMMEDIATE");
   try {
-    const result = await operation();
-    await db2.execute("COMMIT");
+    const transactionDb = usesNativeTransactionApi ? {
+      run: (statement, values = []) => db2.run(statement, values, false),
+      execute: (statements) => db2.execute(statements, false),
+      query: db2.query.bind(db2)
+    } : db2;
+    const result = await operation(transactionDb);
+    if (usesNativeTransactionApi) await db2.commitTransaction();
+    else await db2.execute("COMMIT");
     return result;
   } catch (error) {
     try {
-      await db2.execute("ROLLBACK");
+      if (usesNativeTransactionApi) await db2.rollbackTransaction();
+      else await db2.execute("ROLLBACK");
     } catch {
     }
     throw error;
@@ -6576,8 +6585,8 @@ async function saveGameSession(db2, summary) {
     ) VALUES (?, ?, ?, 'completed', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `;
   const date = summary.date ?? summary.moves[0]?.timestamp ?? (/* @__PURE__ */ new Date()).toISOString();
-  return withTransaction(db2, async () => {
-    await db2.run(insertGameSql, [
+  return withTransaction(db2, async (transactionDb) => {
+    await transactionDb.run(insertGameSql, [
       summary.id,
       date,
       summary.mode,
@@ -6594,7 +6603,7 @@ async function saveGameSession(db2, summary) {
       summary.analysis_engine ?? null,
       summary.analysis_depth ?? null
     ]);
-    await insertMoves(db2, summary);
+    await insertMoves(transactionDb, summary);
     return summary.id;
   });
 }
@@ -6614,10 +6623,10 @@ async function createQueuedGames(db2, games) {
       id, date, mode, status, result, seeded_weakness, seed_puzzle_id, start_fen, current_fen
     ) VALUES (?, ?, 'practice', 'queued', NULL, ?, ?, ?, ?)
   `;
-  return withTransaction(db2, async () => {
+  return withTransaction(db2, async (transactionDb) => {
     const ids = [];
     for (const game of games) {
-      await db2.run(insertSql, [
+      await transactionDb.run(insertSql, [
         game.id,
         game.date ?? (/* @__PURE__ */ new Date()).toISOString(),
         game.seeded_weakness ?? null,
@@ -6655,8 +6664,8 @@ async function completeGameSession(db2, summary) {
   assertDb(db2);
   validateSessionHeader(summary);
   const date = summary.moves[0]?.timestamp ?? (/* @__PURE__ */ new Date()).toISOString();
-  return withTransaction(db2, async () => {
-    const result = await db2.run(`
+  return withTransaction(db2, async (transactionDb) => {
+    const result = await transactionDb.run(`
       UPDATE games
       SET date = ?, mode = ?, status = 'completed', result = ?,
           seeded_weakness = ?, seed_puzzle_id = ?, start_fen = ?, current_fen = ?
@@ -6672,11 +6681,11 @@ async function completeGameSession(db2, summary) {
       summary.id
     ]);
     if (Number(result.changes?.changes) !== 1) {
-      const res = await db2.query("SELECT status FROM games WHERE id = ?", [summary.id]);
+      const res = await transactionDb.query("SELECT status FROM games WHERE id = ?", [summary.id]);
       const current = res.values && res.values.length > 0 ? res.values[0].status : null;
       throw new Error(`Cannot complete game ${summary.id} from status ${current ?? "missing"}.`);
     }
-    await insertMoves(db2, summary);
+    await insertMoves(transactionDb, summary);
     return summary.id;
   });
 }
@@ -6754,14 +6763,14 @@ async function saveWeaknessTags(db2, moveId, tags) {
     INSERT INTO weakness_tags (move_id, category, severity, source)
     VALUES (?, ?, ?, ?)
   `;
-  return withTransaction(db2, async () => {
+  return withTransaction(db2, async (transactionDb) => {
     const ids = [];
     for (const tag of normalizedTags) {
       if (typeof tag.category !== "string" || !tag.category) throw new TypeError("tag.category must be a non-empty string.");
       if (typeof tag.severity !== "string" || !tag.severity) throw new TypeError("tag.severity must be a non-empty string.");
       const source = tag.source ?? "ai_classification";
       if (typeof source !== "string" || !source) throw new TypeError("tag.source must be a non-empty string.");
-      const result = await db2.run(insertTagSql, [moveId, tag.category, tag.severity, source]);
+      const result = await transactionDb.run(insertTagSql, [moveId, tag.category, tag.severity, source]);
       ids.push(Number(result.changes?.lastId));
     }
     return ids;
@@ -6798,11 +6807,11 @@ async function saveMoveClassification(db2, moveId, result) {
   } else if (typeof result.error !== "string" || !result.error) {
     throw new TypeError("An unclassified result requires a non-empty error.");
   }
-  return withTransaction(db2, async () => {
-    const moveRes = await db2.query("SELECT id FROM moves WHERE id = ?", [moveId]);
+  return withTransaction(db2, async (transactionDb) => {
+    const moveRes = await transactionDb.query("SELECT id FROM moves WHERE id = ?", [moveId]);
     if (!moveRes.values || moveRes.values.length === 0) throw new Error(`Move not found: ${moveId}`);
-    await db2.run("UPDATE move_classifications SET is_current = 0 WHERE move_id = ? AND is_current = 1", [moveId]);
-    const inserted = await db2.run(`
+    await transactionDb.run("UPDATE move_classifications SET is_current = 0 WHERE move_id = ? AND is_current = 1", [moveId]);
+    const inserted = await transactionDb.run(`
       INSERT INTO move_classifications (
         move_id, status, category, severity, rationale, error, attempts,
         model_used, backend, prompt_version, prompt_hash, analysis_timestamp, is_current
@@ -6823,7 +6832,7 @@ async function saveMoveClassification(db2, moveId, result) {
     ]);
     const classificationId = Number(inserted.changes?.lastId);
     if (result.status === "classified") {
-      await db2.run(`
+      await transactionDb.run(`
         INSERT INTO weakness_tags (move_id, category, severity, source, classification_id)
         VALUES (?, ?, ?, 'ai_classification', ?)
       `, [moveId, value.category, value.severity, classificationId]);
@@ -6944,12 +6953,12 @@ async function setSetting(db2, key, value) {
 }
 async function resetUserData(db2) {
   assertDb(db2);
-  return withTransaction(db2, async () => {
-    await db2.execute("DELETE FROM weakness_tags;");
-    await db2.execute("DELETE FROM move_classifications;");
-    await db2.execute("DELETE FROM moves;");
-    await db2.execute("DELETE FROM games;");
-    await db2.execute("DELETE FROM settings;");
+  return withTransaction(db2, async (transactionDb) => {
+    await transactionDb.execute("DELETE FROM weakness_tags;");
+    await transactionDb.execute("DELETE FROM move_classifications;");
+    await transactionDb.execute("DELETE FROM moves;");
+    await transactionDb.execute("DELETE FROM games;");
+    await transactionDb.execute("DELETE FROM settings;");
   });
 }
 
@@ -7175,19 +7184,25 @@ async function importRows(db2, text, manifest, onProgress) {
   if (lines.length !== manifest.puzzleCount) {
     throw new Error(`Corpus count mismatch: manifest=${manifest.puzzleCount}, artifact=${lines.length}.`);
   }
-  await db2.execute("BEGIN IMMEDIATE;");
+  const usesNativeTransactionApi = typeof db2.beginTransaction === "function" && typeof db2.commitTransaction === "function" && typeof db2.rollbackTransaction === "function";
+  if (usesNativeTransactionApi) await db2.beginTransaction();
+  else await db2.execute("BEGIN IMMEDIATE;");
+  const transactionDb = usesNativeTransactionApi ? {
+    run: (statement, values = []) => db2.run(statement, values, false),
+    execute: (statements) => db2.execute(statements, false)
+  } : db2;
   try {
-    await db2.execute("DELETE FROM puzzle_themes;");
-    await db2.execute("DELETE FROM puzzles;");
+    await transactionDb.execute("DELETE FROM puzzle_themes;");
+    await transactionDb.execute("DELETE FROM puzzles;");
     for (let index = 0; index < lines.length; index += 1) {
       const record = JSON.parse(lines[index]);
       validatePuzzle(record);
-      await db2.run(
+      await transactionDb.run(
         "INSERT INTO puzzles (puzzle_id, fen, moves, rating, step_count) VALUES (?, ?, ?, ?, ?)",
         [record.puzzleId, record.fen, record.moves, record.rating ?? null, record.stepCount]
       );
       for (const theme of [...new Set(record.themes)]) {
-        await db2.run("INSERT INTO puzzle_themes (theme, puzzle_id) VALUES (?, ?)", [theme, record.puzzleId]);
+        await transactionDb.run("INSERT INTO puzzle_themes (theme, puzzle_id) VALUES (?, ?)", [theme, record.puzzleId]);
       }
       if ((index + 1) % 100 === 0 || index + 1 === lines.length) {
         onProgress?.({
@@ -7198,18 +7213,20 @@ async function importRows(db2, text, manifest, onProgress) {
         });
       }
     }
-    await db2.run(`
+    await transactionDb.run(`
       INSERT INTO corpus_meta (key, value) VALUES ('corpus_version', ?)
       ON CONFLICT(key) DO UPDATE SET value = excluded.value
     `, [manifest.version]);
-    await db2.run(`
+    await transactionDb.run(`
       INSERT INTO corpus_meta (key, value) VALUES ('corpus_sha256', ?)
       ON CONFLICT(key) DO UPDATE SET value = excluded.value
     `, [manifest.sha256.toLowerCase()]);
-    await db2.execute("COMMIT;");
+    if (usesNativeTransactionApi) await db2.commitTransaction();
+    else await db2.execute("COMMIT;");
   } catch (error) {
     try {
-      await db2.execute("ROLLBACK;");
+      if (usesNativeTransactionApi) await db2.rollbackTransaction();
+      else await db2.execute("ROLLBACK;");
     } catch {
     }
     throw error;

@@ -201,6 +201,40 @@ test('mobileDb: saveGameSession round-trips an async PracticeSession.summary()',
   }
 });
 
+test('mobileDb: native transaction API disables nested per-statement transactions', async () => {
+  const backingDb = createMockCapacitorDb();
+  const transactionFlags = [];
+  const db = {
+    execute: (sql, transaction) => {
+      transactionFlags.push(transaction);
+      return backingDb.execute(sql);
+    },
+    run: (sql, values, transaction) => {
+      transactionFlags.push(transaction);
+      return backingDb.run(sql, values);
+    },
+    query: backingDb.query,
+    beginTransaction: () => backingDb.execute('BEGIN IMMEDIATE'),
+    commitTransaction: () => backingDb.execute('COMMIT'),
+    rollbackTransaction: () => backingDb.execute('ROLLBACK'),
+  };
+
+  try {
+    await createQueuedGames(db, [{
+      id: 'native-transaction-seed',
+      date: NOW,
+      seeded_weakness: 'tactical',
+      seed_puzzle_id: 'seed-native-1',
+      start_fen: START_FEN,
+      current_fen: START_FEN,
+    }]);
+    assert.deepEqual(transactionFlags, [false]);
+    assert.equal(await getGameStatus(db, 'native-transaction-seed'), 'queued');
+  } finally {
+    backingDb.close();
+  }
+});
+
 test('mobileDb: completeGameSession rolls status and move inserts back atomically on error', async () => {
   const db = createMockCapacitorDb();
   try {

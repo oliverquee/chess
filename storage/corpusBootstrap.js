@@ -111,19 +111,29 @@ async function importRows(db, text, manifest, onProgress) {
     throw new Error(`Corpus count mismatch: manifest=${manifest.puzzleCount}, artifact=${lines.length}.`);
   }
 
-  await db.execute('BEGIN IMMEDIATE;');
+  const usesNativeTransactionApi = typeof db.beginTransaction === 'function'
+    && typeof db.commitTransaction === 'function'
+    && typeof db.rollbackTransaction === 'function';
+  if (usesNativeTransactionApi) await db.beginTransaction();
+  else await db.execute('BEGIN IMMEDIATE;');
+  const transactionDb = usesNativeTransactionApi
+    ? {
+        run: (statement, values = []) => db.run(statement, values, false),
+        execute: (statements) => db.execute(statements, false),
+      }
+    : db;
   try {
-    await db.execute('DELETE FROM puzzle_themes;');
-    await db.execute('DELETE FROM puzzles;');
+    await transactionDb.execute('DELETE FROM puzzle_themes;');
+    await transactionDb.execute('DELETE FROM puzzles;');
     for (let index = 0; index < lines.length; index += 1) {
       const record = JSON.parse(lines[index]);
       validatePuzzle(record);
-      await db.run(
+      await transactionDb.run(
         'INSERT INTO puzzles (puzzle_id, fen, moves, rating, step_count) VALUES (?, ?, ?, ?, ?)',
         [record.puzzleId, record.fen, record.moves, record.rating ?? null, record.stepCount],
       );
       for (const theme of [...new Set(record.themes)]) {
-        await db.run('INSERT INTO puzzle_themes (theme, puzzle_id) VALUES (?, ?)', [theme, record.puzzleId]);
+        await transactionDb.run('INSERT INTO puzzle_themes (theme, puzzle_id) VALUES (?, ?)', [theme, record.puzzleId]);
       }
       if ((index + 1) % 100 === 0 || index + 1 === lines.length) {
         onProgress?.({
@@ -134,17 +144,21 @@ async function importRows(db, text, manifest, onProgress) {
         });
       }
     }
-    await db.run(`
+    await transactionDb.run(`
       INSERT INTO corpus_meta (key, value) VALUES ('corpus_version', ?)
       ON CONFLICT(key) DO UPDATE SET value = excluded.value
     `, [manifest.version]);
-    await db.run(`
+    await transactionDb.run(`
       INSERT INTO corpus_meta (key, value) VALUES ('corpus_sha256', ?)
       ON CONFLICT(key) DO UPDATE SET value = excluded.value
     `, [manifest.sha256.toLowerCase()]);
-    await db.execute('COMMIT;');
+    if (usesNativeTransactionApi) await db.commitTransaction();
+    else await db.execute('COMMIT;');
   } catch (error) {
-    try { await db.execute('ROLLBACK;'); } catch {}
+    try {
+      if (usesNativeTransactionApi) await db.rollbackTransaction();
+      else await db.execute('ROLLBACK;');
+    } catch {}
     throw error;
   }
 }
