@@ -19,6 +19,14 @@ body, #board-layout-main, .board-layout-main {
 
 /* Web Component Board and Squares */
 wc-chess-board, chess-board, .board {
+  background-image: conic-gradient(
+    var(--chess-analyst-board-dark) 25%,
+    var(--chess-analyst-board-light) 0 50%,
+    var(--chess-analyst-board-dark) 0 75%,
+    var(--chess-analyst-board-light) 0
+  ) !important;
+  background-size: 25% 25% !important;
+  background-repeat: repeat !important;
   border-radius: 10px !important;
   box-shadow: 0 4px 16px rgba(110, 61, 48, 0.18) !important;
   border: 2px solid var(--chess-analyst-board-frame) !important;

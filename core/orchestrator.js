@@ -13,6 +13,7 @@ export class TrainingOrchestrator {
     storage,
     puzzleLibrary,
     engineFactory,
+    skillLevel = 10,
     idFactory = defaultIdFactory,
     now = () => new Date().toISOString(),
   }) {
@@ -25,14 +26,25 @@ export class TrainingOrchestrator {
     }
     if (!puzzleLibrary?.filter) throw new TypeError('puzzleLibrary must provide filter(query).');
     if (typeof engineFactory !== 'function') throw new TypeError('engineFactory must be a function.');
+    if (!Number.isInteger(skillLevel) || skillLevel < 0 || skillLevel > 20) {
+      throw new RangeError('skillLevel must be an integer from 0 to 20.');
+    }
     this.db = db;
     this.storage = storage;
     this.puzzleLibrary = puzzleLibrary;
     this.engineFactory = engineFactory;
+    this.skillLevel = skillLevel;
     this.idFactory = idFactory;
     this.now = now;
     this.queue = [];
     this.sessions = new Map();
+  }
+
+  setSkillLevel(skillLevel) {
+    if (!Number.isInteger(skillLevel) || skillLevel < 0 || skillLevel > 20) {
+      throw new RangeError('skillLevel must be an integer from 0 to 20.');
+    }
+    this.skillLevel = skillLevel;
   }
 
   async getNextFocus(rankedWeaknesses) {
@@ -46,7 +58,11 @@ export class TrainingOrchestrator {
 
   async startTargetedSession(rankedWeaknesses) {
     const weaknesses = rankedWeaknesses ?? (await this.storage.getWeaknessTally(this.db));
-    const focus = await this.getNextFocus(weaknesses);
+    const unresolvedFocus = await this.getNextFocus(weaknesses);
+    const focus = {
+      ...unresolvedFocus,
+      puzzles: await Promise.all(unresolvedFocus.puzzles ?? []),
+    };
     if (!focus.weaknessCategory) return { ...focus, activeSession: null, queued: [] };
     if (focus.puzzles.length !== 2) {
       throw new Error(`Start-slow targeting must return exactly two puzzles; received ${focus.puzzles.length}.`);
@@ -80,6 +96,7 @@ export class TrainingOrchestrator {
         weaknessCategory: descriptor.weaknessCategory,
       },
       engine: this.engineFactory(descriptor),
+      skillLevel: this.skillLevel,
       gameId,
       now: this.now,
     });
@@ -111,5 +128,3 @@ export class TrainingOrchestrator {
     return await this.storage.transitionGameStatus(this.db, gameId, 'analyzed');
   }
 }
-
-

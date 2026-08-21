@@ -13,14 +13,18 @@ import assert from 'node:assert/strict';
 import { JSDOM } from 'jsdom';
 import { readFileSync } from 'node:fs';
 import { Chess } from 'chess.js';
+import { DatabaseSync } from 'node:sqlite';
 
 import { TrainingOrchestrator } from '../core/orchestrator.js';
 import { PracticeSession } from '../engine/practiceSession.js';
 import * as dbStorage from '../storage/db.js';
 import { initDb } from '../storage/db.js';
 import { initPuzzleDb, SqlitePuzzleLibrary } from '../data/puzzleDb.js';
+import { getSettings, setSetting } from '../storage/mobileDb.js';
+import { renderProfile } from '../www/profile.js';
 
 const HTML = readFileSync(new URL('../www/index.html', import.meta.url), 'utf8');
+const CAPACITOR_CONFIG = JSON.parse(readFileSync(new URL('../capacitor.config.json', import.meta.url), 'utf8'));
 
 /** Deterministic stand-in for the Stockfish worker client. */
 function stubEngine() {
@@ -139,4 +143,67 @@ test('app wiring: index.html loads the bundle as a module', () => {
     'index.html must load the bundled ES module, not the raw prototype script');
 });
 
+test('app wiring: native HTTP is enabled for CORS-safe corpus delivery', () => {
+  assert.equal(CAPACITOR_CONFIG.plugins?.CapacitorHttp?.enabled, true);
+});
 
+test('app wiring: the real entry HTML exposes an explicit first-run corpus gate and primary tabs', () => {
+  const dom = new JSDOM(HTML);
+  assert.ok(dom.window.document.getElementById('corpus-first-run'));
+  assert.equal(dom.window.document.getElementById('btn-download-corpus')?.textContent.trim(), 'Download puzzle pack');
+  assert.ok(dom.window.document.getElementById('nav-practice'));
+  assert.ok(dom.window.document.getElementById('nav-profile'));
+  assert.equal(dom.window.document.getElementById('nav-chesscom')?.textContent.trim(), '♞Chess.com');
+});
+
+test('app wiring: profile page renders the intentional fresh-install empty states', () => {
+  const dom = new JSDOM(HTML);
+  const container = dom.window.document.getElementById('profile-page');
+  renderProfile({
+    container,
+    stats: { totalSessions: 0, totalMoves: 0, weaknessTally: [], recentSessions: [] },
+    settings: { display_name: '', cat_avatar: 'orange-tabby', chesscom_username: 'lastautumnleaf1', engine_skill_level: '10', theme: 'cat' },
+    corpusStatus: { populated: false, puzzleCount: 0, version: null },
+    focus: null,
+  });
+  assert.match(container.textContent, /No sessions yet — tap Pounce on Weakness/);
+  assert.match(container.textContent, /Complete at least 3 sessions/);
+});
+
+test('app wiring: profile page renders populated aggregates without demo fallbacks', () => {
+  const dom = new JSDOM(HTML);
+  const container = dom.window.document.getElementById('profile-page');
+  renderProfile({
+    container,
+    stats: {
+      totalSessions: 4,
+      totalMoves: 31,
+      weaknessTally: [{ category: 'tactical', count: 3 }],
+      recentSessions: [{ id: 'g1', date: '2026-08-20T08:00:00Z', seeded_weakness: 'tactical', result: '1-0', move_count: 12 }],
+    },
+    settings: { display_name: 'Pratham', cat_avatar: 'orange-tabby', chesscom_username: 'lastautumnleaf1', engine_skill_level: '14', theme: 'cat' },
+    corpusStatus: { populated: true, puzzleCount: 7200, version: 'm9-v1' },
+    focus: { weaknessCategory: 'tactical' },
+  });
+  assert.match(container.textContent, /4 hunts completed/);
+  assert.match(container.textContent, /31/);
+  assert.match(container.textContent, /7,200 puzzles/);
+  assert.match(container.textContent, /12 moves/);
+});
+
+test('app wiring: SQLite settings round-trip survives a new async connection wrapper', async () => {
+  const sqlite = new DatabaseSync(':memory:');
+  sqlite.exec('CREATE TABLE settings (key TEXT PRIMARY KEY, value TEXT NOT NULL);');
+  const connection = () => ({
+    async execute(sql) { sqlite.exec(sql); },
+    async run(sql, values = []) { const result = sqlite.prepare(sql).run(...values); return { changes: { changes: Number(result.changes) } }; },
+    async query(sql, values = []) { return { values: sqlite.prepare(sql).all(...values) }; },
+  });
+  try {
+    await setSetting(connection(), 'engine_skill_level', '16');
+    await setSetting(connection(), 'chesscom_username', 'lastautumnleaf1');
+    const reopened = await getSettings(connection());
+    assert.equal(reopened.engine_skill_level, '16');
+    assert.equal(reopened.chesscom_username, 'lastautumnleaf1');
+  } finally { sqlite.close(); }
+});

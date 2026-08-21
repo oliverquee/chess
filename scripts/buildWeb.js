@@ -22,6 +22,7 @@ await build({
   format: 'esm',
   platform: 'browser',
   target: ['es2022'],
+  loader: { '.css': 'text' },
   sourcemap: true,
   // Stockfish is loaded as a separate Worker from www/vendor/, never bundled.
   external: ['./vendor/stockfish/stockfish.js'],
@@ -29,5 +30,3 @@ await build({
 });
 
 console.log('Built www/bundle.js');
-
-

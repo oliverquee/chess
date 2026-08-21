@@ -91,6 +91,11 @@ CREATE TABLE IF NOT EXISTS weakness_tags (
   classification_id INTEGER NULL REFERENCES move_classifications(id)
 );
 
+CREATE TABLE IF NOT EXISTS settings (
+  key TEXT PRIMARY KEY,
+  value TEXT NOT NULL
+);
+
 CREATE INDEX IF NOT EXISTS idx_games_seeded_weakness ON games(seeded_weakness);
 CREATE INDEX IF NOT EXISTS idx_moves_game_id ON moves(game_id);
 CREATE INDEX IF NOT EXISTS idx_weakness_tags_category ON weakness_tags(category);
@@ -116,6 +121,14 @@ const WEAKNESS_CATEGORIES = new Set([
 ]);
 const SEVERITIES = new Set(['low', 'medium', 'high']);
 const ANALYSIS_BACKENDS = new Set(['claude', 'ollama']);
+const SETTING_DEFAULTS = Object.freeze({
+  display_name: '',
+  cat_avatar: 'orange-tabby',
+  chesscom_username: 'lastautumnleaf1',
+  engine_skill_level: '10',
+  theme: 'cat',
+});
+const SETTING_KEYS = new Set(Object.keys(SETTING_DEFAULTS));
 
 function assertDb(db) {
   if (!db || typeof db.execute !== 'function' || typeof db.run !== 'function' || typeof db.query !== 'function') {
@@ -183,14 +196,27 @@ function timestampSourceFor(move, mode) {
 }
 
 async function withTransaction(db, operation) {
-  await db.execute('BEGIN IMMEDIATE');
+  const usesNativeTransactionApi = typeof db.beginTransaction === 'function'
+    && typeof db.commitTransaction === 'function'
+    && typeof db.rollbackTransaction === 'function';
+  if (usesNativeTransactionApi) await db.beginTransaction();
+  else await db.execute('BEGIN IMMEDIATE');
   try {
-    const result = await operation();
-    await db.execute('COMMIT');
+    const transactionDb = usesNativeTransactionApi
+      ? {
+          run: (statement, values = []) => db.run(statement, values, false),
+          execute: (statements) => db.execute(statements, false),
+          query: db.query.bind(db),
+        }
+      : db;
+    const result = await operation(transactionDb);
+    if (usesNativeTransactionApi) await db.commitTransaction();
+    else await db.execute('COMMIT');
     return result;
   } catch (error) {
     try {
-      await db.execute('ROLLBACK');
+      if (usesNativeTransactionApi) await db.rollbackTransaction();
+      else await db.execute('ROLLBACK');
     } catch {
       // Preserve the original failure; rollback errors are secondary.
     }
@@ -346,8 +372,8 @@ export async function saveGameSession(db, summary) {
 
   const date = summary.date ?? summary.moves[0]?.timestamp ?? new Date().toISOString();
 
-  return withTransaction(db, async () => {
-    await db.run(insertGameSql, [
+  return withTransaction(db, async (transactionDb) => {
+    await transactionDb.run(insertGameSql, [
       summary.id,
       date,
       summary.mode,
@@ -365,7 +391,7 @@ export async function saveGameSession(db, summary) {
       summary.analysis_depth ?? null,
     ]);
 
-    await insertMoves(db, summary);
+    await insertMoves(transactionDb, summary);
 
     return summary.id;
   });
@@ -390,10 +416,10 @@ export async function createQueuedGames(db, games) {
     ) VALUES (?, ?, 'practice', 'queued', NULL, ?, ?, ?, ?)
   `;
 
-  return withTransaction(db, async () => {
+  return withTransaction(db, async (transactionDb) => {
     const ids = [];
     for (const game of games) {
-      await db.run(insertSql, [
+      await transactionDb.run(insertSql, [
         game.id,
         game.date ?? new Date().toISOString(),
         game.seeded_weakness ?? null,
@@ -438,8 +464,8 @@ export async function completeGameSession(db, summary) {
   validateSessionHeader(summary);
   const date = summary.moves[0]?.timestamp ?? new Date().toISOString();
 
-  return withTransaction(db, async () => {
-    const result = await db.run(`
+  return withTransaction(db, async (transactionDb) => {
+    const result = await transactionDb.run(`
       UPDATE games
       SET date = ?, mode = ?, status = 'completed', result = ?,
           seeded_weakness = ?, seed_puzzle_id = ?, start_fen = ?, current_fen = ?
@@ -456,11 +482,11 @@ export async function completeGameSession(db, summary) {
     ]);
     
     if (Number(result.changes?.changes) !== 1) {
-      const res = await db.query('SELECT status FROM games WHERE id = ?', [summary.id]);
+      const res = await transactionDb.query('SELECT status FROM games WHERE id = ?', [summary.id]);
       const current = res.values && res.values.length > 0 ? res.values[0].status : null;
       throw new Error(`Cannot complete game ${summary.id} from status ${current ?? 'missing'}.`);
     }
-    await insertMoves(db, summary);
+    await insertMoves(transactionDb, summary);
     return summary.id;
   });
 }
@@ -558,7 +584,7 @@ export async function saveWeaknessTags(db, moveId, tags) {
     VALUES (?, ?, ?, ?)
   `;
 
-  return withTransaction(db, async () => {
+  return withTransaction(db, async (transactionDb) => {
     const ids = [];
     for (const tag of normalizedTags) {
       if (typeof tag.category !== 'string' || !tag.category) throw new TypeError('tag.category must be a non-empty string.');
@@ -566,7 +592,7 @@ export async function saveWeaknessTags(db, moveId, tags) {
       const source = tag.source ?? 'ai_classification';
       if (typeof source !== 'string' || !source) throw new TypeError('tag.source must be a non-empty string.');
 
-      const result = await db.run(insertTagSql, [moveId, tag.category, tag.severity, source]);
+      const result = await transactionDb.run(insertTagSql, [moveId, tag.category, tag.severity, source]);
       ids.push(Number(result.changes?.lastId));
     }
     return ids;
@@ -607,13 +633,13 @@ export async function saveMoveClassification(db, moveId, result) {
     throw new TypeError('An unclassified result requires a non-empty error.');
   }
 
-  return withTransaction(db, async () => {
-    const moveRes = await db.query('SELECT id FROM moves WHERE id = ?', [moveId]);
+  return withTransaction(db, async (transactionDb) => {
+    const moveRes = await transactionDb.query('SELECT id FROM moves WHERE id = ?', [moveId]);
     if (!moveRes.values || moveRes.values.length === 0) throw new Error(`Move not found: ${moveId}`);
     
-    await db.run('UPDATE move_classifications SET is_current = 0 WHERE move_id = ? AND is_current = 1', [moveId]);
+    await transactionDb.run('UPDATE move_classifications SET is_current = 0 WHERE move_id = ? AND is_current = 1', [moveId]);
     
-    const inserted = await db.run(`
+    const inserted = await transactionDb.run(`
       INSERT INTO move_classifications (
         move_id, status, category, severity, rationale, error, attempts,
         model_used, backend, prompt_version, prompt_hash, analysis_timestamp, is_current
@@ -635,7 +661,7 @@ export async function saveMoveClassification(db, moveId, result) {
     
     const classificationId = Number(inserted.changes?.lastId);
     if (result.status === 'classified') {
-      await db.run(`
+      await transactionDb.run(`
         INSERT INTO weakness_tags (move_id, category, severity, source, classification_id)
         VALUES (?, ?, ?, 'ai_classification', ?)
       `, [moveId, value.category, value.severity, classificationId]);
@@ -697,4 +723,89 @@ export async function getWeaknessTally(db, { sinceGameId } = {}) {
 
   const res = await db.query(sql, params);
   return (res.values || []).map((row) => ({ category: row.category, count: Number(row.count) }));
+}
+
+export async function getProfileStats(db, { recentLimit = 10 } = {}) {
+  assertDb(db);
+  if (!Number.isInteger(recentLimit) || recentLimit < 1 || recentLimit > 50) {
+    throw new RangeError('recentLimit must be an integer from 1 to 50.');
+  }
+
+  const totalsRes = await db.query(`
+    SELECT
+      COUNT(*) AS total_sessions,
+      COALESCE(SUM(move_count), 0) AS total_moves
+    FROM (
+      SELECT g.id, COUNT(m.id) AS move_count
+      FROM games g
+      LEFT JOIN moves m ON m.game_id = g.id
+      WHERE g.status IN ('completed', 'analyzed')
+      GROUP BY g.id
+    )
+  `);
+  const totals = totalsRes.values?.[0] ?? { total_sessions: 0, total_moves: 0 };
+
+  const recentRes = await db.query(`
+    SELECT g.id, g.date, g.seeded_weakness, g.result, g.status, COUNT(m.id) AS move_count
+    FROM games g
+    LEFT JOIN moves m ON m.game_id = g.id
+    WHERE g.status IN ('completed', 'analyzed')
+    GROUP BY g.id
+    ORDER BY COALESCE(g.date, '') DESC, g.rowid DESC
+    LIMIT ?
+  `, [recentLimit]);
+
+  return {
+    totalSessions: Number(totals.total_sessions ?? 0),
+    totalMoves: Number(totals.total_moves ?? 0),
+    weaknessTally: await getWeaknessTally(db),
+    recentSessions: (recentRes.values || []).map((row) => ({
+      ...row,
+      move_count: Number(row.move_count ?? 0),
+    })),
+  };
+}
+
+export async function getSettings(db) {
+  assertDb(db);
+  const res = await db.query('SELECT key, value FROM settings');
+  const settings = { ...SETTING_DEFAULTS };
+  for (const row of res.values || []) {
+    if (SETTING_KEYS.has(row.key)) settings[row.key] = String(row.value);
+  }
+  return settings;
+}
+
+export async function setSetting(db, key, value) {
+  assertDb(db);
+  if (!SETTING_KEYS.has(key)) throw new RangeError(`Unknown setting: ${key}`);
+  const normalized = String(value ?? '').trim();
+  if (key === 'engine_skill_level') {
+    const level = Number(normalized);
+    if (!Number.isInteger(level) || level < 0 || level > 20) {
+      throw new RangeError('engine_skill_level must be an integer from 0 to 20.');
+    }
+  }
+  if (key === 'theme' && !['cat', 'panda', 'black-cat', 'bunny', 'fox', 'corgi', 'koala', 'raccoon', 'otter', 'red-panda'].includes(normalized)) {
+    throw new RangeError('Unknown animal theme.');
+  }
+  if (key === 'cat_avatar' && !['orange-tabby', 'tuxedo', 'calico', 'black-cat'].includes(normalized)) {
+    throw new RangeError('Unknown cat avatar.');
+  }
+  await db.run(`
+    INSERT INTO settings (key, value) VALUES (?, ?)
+    ON CONFLICT(key) DO UPDATE SET value = excluded.value
+  `, [key, normalized]);
+  return normalized;
+}
+
+export async function resetUserData(db) {
+  assertDb(db);
+  return withTransaction(db, async (transactionDb) => {
+    await transactionDb.execute('DELETE FROM weakness_tags;');
+    await transactionDb.execute('DELETE FROM move_classifications;');
+    await transactionDb.execute('DELETE FROM moves;');
+    await transactionDb.execute('DELETE FROM games;');
+    await transactionDb.execute('DELETE FROM settings;');
+  });
 }

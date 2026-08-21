@@ -517,13 +517,154 @@ var init_dist = __esm({
   }
 });
 
-// node_modules/@capacitor-community/sqlite/dist/esm/web.js
+// node_modules/@capgo/capacitor-inappbrowser/dist/esm/web.js
 var web_exports = {};
 __export(web_exports, {
+  InAppBrowserWeb: () => InAppBrowserWeb
+});
+var InAppBrowserWeb;
+var init_web = __esm({
+  "node_modules/@capgo/capacitor-inappbrowser/dist/esm/web.js"() {
+    init_dist();
+    InAppBrowserWeb = class extends WebPlugin {
+      clearAllCookies() {
+        console.log("clearAllCookies");
+        return Promise.resolve();
+      }
+      clearCache() {
+        console.log("clearCache");
+        return Promise.resolve();
+      }
+      clearAllBrowsingData() {
+        console.log("clearAllBrowsingData");
+        return Promise.resolve();
+      }
+      async open(options) {
+        console.log("open", options);
+        return options;
+      }
+      async clearCookies(options) {
+        console.log("cleanCookies", options);
+        return;
+      }
+      async getCookies(options) {
+        return options;
+      }
+      async openWebView(options) {
+        console.log("openWebView", options);
+        return options;
+      }
+      async executeScript({ code }) {
+        console.log("code", code);
+        return code;
+      }
+      async close(options) {
+        console.log("close", options);
+        return;
+      }
+      async hide(options) {
+        console.log("hide", options);
+        return;
+      }
+      async show(options) {
+        console.log("show", options);
+        return;
+      }
+      async sendToBack(options) {
+        console.log("sendToBack not supported on web", options);
+        return;
+      }
+      async bringToFront(options) {
+        console.log("bringToFront not supported on web", options);
+        return;
+      }
+      async dispatchInputEvent(options) {
+        console.log("dispatchInputEvent not supported on web", options);
+        return;
+      }
+      async setUrl(options) {
+        console.log("setUrl", options.url);
+        return;
+      }
+      async reload(options) {
+        console.log("reload", options);
+        return;
+      }
+      async postMessage(options) {
+        console.log("postMessage", options);
+        return options;
+      }
+      async takeScreenshot(options) {
+        console.log("takeScreenshot not supported on web", options);
+        throw this.unimplemented("Screenshots are not supported on web.");
+      }
+      async goBack() {
+        console.log("goBack");
+        return;
+      }
+      async getPluginVersion() {
+        return { version: "web" };
+      }
+      async updateDimensions(options) {
+        console.log("updateDimensions", options);
+        return;
+      }
+      async handleProxyRequest(options) {
+        console.log("handleProxyRequest not supported on web", options);
+        return;
+      }
+      async setEnabledSafeTopMargin(options) {
+        console.log("setEnabledSafeTopMargin not supported on web", options);
+        return;
+      }
+      async setEnabledSafeBottomMargin(options) {
+        console.log("setEnabledSafeBottomMargin not supported on web", options);
+        return;
+      }
+      async openSecureWindow(options) {
+        const w = 600;
+        const h = 550;
+        const settings2 = [
+          ["width", w],
+          ["height", h],
+          ["left", screen.width / 2 - w / 2],
+          ["top", screen.height / 2 - h / 2]
+        ].map((x) => x.join("=")).join(",");
+        const popup = window.open(options.authEndpoint, "Authorization", settings2);
+        if (!popup) {
+          throw new Error("Failed to open secure window");
+        }
+        if (typeof popup.focus === "function") {
+          popup.focus();
+        }
+        return new Promise((resolve, reject) => {
+          const bc = new BroadcastChannel(options.broadcastChannelName || "oauth-channel");
+          bc.addEventListener("message", (event) => {
+            if (event.data.startsWith(options.redirectUri)) {
+              bc.close();
+              resolve({ redirectedUri: event.data });
+            } else {
+              bc.close();
+              reject(new Error("Redirect URI does not match, expected " + options.redirectUri + " but got " + event.data));
+            }
+          });
+          setTimeout(() => {
+            bc.close();
+            reject(new Error("The sign-in flow timed out"));
+          }, 5 * 6e4);
+        });
+      }
+    };
+  }
+});
+
+// node_modules/@capacitor-community/sqlite/dist/esm/web.js
+var web_exports2 = {};
+__export(web_exports2, {
   CapacitorSQLiteWeb: () => CapacitorSQLiteWeb
 });
 var CapacitorSQLiteWeb;
-var init_web = __esm({
+var init_web2 = __esm({
   "node_modules/@capacitor-community/sqlite/dist/esm/web.js"() {
     init_dist();
     CapacitorSQLiteWeb = class extends WebPlugin {
@@ -1118,21 +1259,21 @@ peg$SyntaxError.buildMessage = function(expected, found) {
       return expectation.description;
     }
   };
-  function hex(ch) {
+  function hex2(ch) {
     return ch.charCodeAt(0).toString(16).toUpperCase();
   }
   function literalEscape(s) {
     return s.replace(/\\/g, "\\\\").replace(/"/g, '\\"').replace(/\0/g, "\\0").replace(/\t/g, "\\t").replace(/\n/g, "\\n").replace(/\r/g, "\\r").replace(/[\x00-\x0F]/g, function(ch) {
-      return "\\x0" + hex(ch);
+      return "\\x0" + hex2(ch);
     }).replace(/[\x10-\x1F\x7F-\x9F]/g, function(ch) {
-      return "\\x" + hex(ch);
+      return "\\x" + hex2(ch);
     });
   }
   function classEscape(s) {
     return s.replace(/\\/g, "\\\\").replace(/\]/g, "\\]").replace(/\^/g, "\\^").replace(/-/g, "\\-").replace(/\0/g, "\\0").replace(/\t/g, "\\t").replace(/\n/g, "\\n").replace(/\r/g, "\\r").replace(/[\x00-\x0F]/g, function(ch) {
-      return "\\x0" + hex(ch);
+      return "\\x0" + hex2(ch);
     }).replace(/[\x10-\x1F\x7F-\x9F]/g, function(ch) {
-      return "\\x" + hex(ch);
+      return "\\x" + hex2(ch);
     });
   }
   function describeExpectation(expectation) {
@@ -4451,6 +4592,54 @@ var Chess = class {
   }
 };
 
+// node_modules/@capgo/capacitor-inappbrowser/dist/esm/index.js
+init_dist();
+
+// node_modules/@capgo/capacitor-inappbrowser/dist/esm/definitions.js
+var BackgroundColor;
+(function(BackgroundColor2) {
+  BackgroundColor2["WHITE"] = "white";
+  BackgroundColor2["BLACK"] = "black";
+})(BackgroundColor || (BackgroundColor = {}));
+var ToolBarType;
+(function(ToolBarType2) {
+  ToolBarType2["ACTIVITY"] = "activity";
+  ToolBarType2["COMPACT"] = "compact";
+  ToolBarType2["NAVIGATION"] = "navigation";
+  ToolBarType2["BLANK"] = "blank";
+})(ToolBarType || (ToolBarType = {}));
+var InvisibilityMode;
+(function(InvisibilityMode2) {
+  InvisibilityMode2["AWARE"] = "AWARE";
+  InvisibilityMode2["FAKE_VISIBLE"] = "FAKE_VISIBLE";
+})(InvisibilityMode || (InvisibilityMode = {}));
+var CloseAction;
+(function(CloseAction2) {
+  CloseAction2["CLOSE"] = "close";
+  CloseAction2["HIDE"] = "hide";
+})(CloseAction || (CloseAction = {}));
+
+// node_modules/@capgo/capacitor-inappbrowser/dist/esm/index.js
+var CAPGO_PLUGIN_NAME = "CapgoInAppBrowser";
+var PREVIOUS_PLUGIN_NAME = "InAppBrowser";
+function resolvePluginName() {
+  if (!Capacitor.isNativePlatform()) {
+    return CAPGO_PLUGIN_NAME;
+  }
+  if (Capacitor.isPluginAvailable(CAPGO_PLUGIN_NAME)) {
+    return CAPGO_PLUGIN_NAME;
+  }
+  if (Capacitor.isPluginAvailable(PREVIOUS_PLUGIN_NAME)) {
+    return PREVIOUS_PLUGIN_NAME;
+  }
+  console.warn(`[InAppBrowser] Neither '${CAPGO_PLUGIN_NAME}' nor '${PREVIOUS_PLUGIN_NAME}' native plugin detected. Ensure @capgo/capacitor-inappbrowser native code is installed.`);
+  return CAPGO_PLUGIN_NAME;
+}
+var inAppBrowserImplementations = {
+  web: () => Promise.resolve().then(() => (init_web(), web_exports)).then((m) => new m.InAppBrowserWeb())
+};
+var InAppBrowser = registerPlugin(resolvePluginName(), inAppBrowserImplementations);
+
 // data/puzzleLoader.js
 var activeLibrary = null;
 function getPuzzleLibrary() {
@@ -5096,6 +5285,7 @@ var TrainingOrchestrator = class {
     storage,
     puzzleLibrary,
     engineFactory,
+    skillLevel = 10,
     idFactory = defaultIdFactory,
     now = () => (/* @__PURE__ */ new Date()).toISOString()
   }) {
@@ -5107,14 +5297,24 @@ var TrainingOrchestrator = class {
     }
     if (!puzzleLibrary?.filter) throw new TypeError("puzzleLibrary must provide filter(query).");
     if (typeof engineFactory !== "function") throw new TypeError("engineFactory must be a function.");
+    if (!Number.isInteger(skillLevel) || skillLevel < 0 || skillLevel > 20) {
+      throw new RangeError("skillLevel must be an integer from 0 to 20.");
+    }
     this.db = db2;
     this.storage = storage;
     this.puzzleLibrary = puzzleLibrary;
     this.engineFactory = engineFactory;
+    this.skillLevel = skillLevel;
     this.idFactory = idFactory;
     this.now = now;
     this.queue = [];
     this.sessions = /* @__PURE__ */ new Map();
+  }
+  setSkillLevel(skillLevel) {
+    if (!Number.isInteger(skillLevel) || skillLevel < 0 || skillLevel > 20) {
+      throw new RangeError("skillLevel must be an integer from 0 to 20.");
+    }
+    this.skillLevel = skillLevel;
   }
   async getNextFocus(rankedWeaknesses) {
     const weaknesses = rankedWeaknesses ?? await this.storage.getWeaknessTally(this.db);
@@ -5126,7 +5326,11 @@ var TrainingOrchestrator = class {
   }
   async startTargetedSession(rankedWeaknesses) {
     const weaknesses = rankedWeaknesses ?? await this.storage.getWeaknessTally(this.db);
-    const focus = await this.getNextFocus(weaknesses);
+    const unresolvedFocus = await this.getNextFocus(weaknesses);
+    const focus = {
+      ...unresolvedFocus,
+      puzzles: await Promise.all(unresolvedFocus.puzzles ?? [])
+    };
     if (!focus.weaknessCategory) return { ...focus, activeSession: null, queued: [] };
     if (focus.puzzles.length !== 2) {
       throw new Error(`Start-slow targeting must return exactly two puzzles; received ${focus.puzzles.length}.`);
@@ -5157,6 +5361,7 @@ var TrainingOrchestrator = class {
         weaknessCategory: descriptor.weaknessCategory
       },
       engine: this.engineFactory(descriptor),
+      skillLevel: this.skillLevel,
       gameId,
       now: this.now
     });
@@ -5184,6 +5389,14 @@ var TrainingOrchestrator = class {
   }
 };
 
+// data/corpusManifest.js
+var CORPUS_MANIFEST = Object.freeze({
+  version: "m9-v1",
+  puzzleCount: 7200,
+  sha256: "0c3be26539d64355de521908d884f4f48bc21d1eda46769f932d45910753cf6e",
+  url: "https://github.com/oliverquee/chess/releases/download/m9-corpus-v1/puzzles-subset.jsonl.gz"
+});
+
 // storage/mobileDb.js
 var mobileDb_exports = {};
 __export(mobileDb_exports, {
@@ -5194,11 +5407,15 @@ __export(mobileDb_exports, {
   getGameHistory: () => getGameHistory,
   getGameStatus: () => getGameStatus,
   getMoveClassifications: () => getMoveClassifications,
+  getProfileStats: () => getProfileStats,
+  getSettings: () => getSettings,
   getWeaknessTally: () => getWeaknessTally,
   initDb: () => initDb,
+  resetUserData: () => resetUserData,
   saveGameSession: () => saveGameSession,
   saveMoveClassification: () => saveMoveClassification,
   saveWeaknessTags: () => saveWeaknessTags,
+  setSetting: () => setSetting,
   transitionGameStatus: () => transitionGameStatus
 });
 
@@ -6032,7 +6249,7 @@ var SQLiteDBConnection = class {
 
 // node_modules/@capacitor-community/sqlite/dist/esm/index.js
 var CapacitorSQLite = registerPlugin("CapacitorSQLite", {
-  web: () => Promise.resolve().then(() => (init_web(), web_exports)).then((m) => new m.CapacitorSQLiteWeb()),
+  web: () => Promise.resolve().then(() => (init_web2(), web_exports2)).then((m) => new m.CapacitorSQLiteWeb()),
   electron: () => window.CapacitorCustomPlatform.plugins.CapacitorSQLite
 });
 
@@ -6123,6 +6340,11 @@ CREATE TABLE IF NOT EXISTS weakness_tags (
   classification_id INTEGER NULL REFERENCES move_classifications(id)
 );
 
+CREATE TABLE IF NOT EXISTS settings (
+  key TEXT PRIMARY KEY,
+  value TEXT NOT NULL
+);
+
 CREATE INDEX IF NOT EXISTS idx_games_seeded_weakness ON games(seeded_weakness);
 CREATE INDEX IF NOT EXISTS idx_moves_game_id ON moves(game_id);
 CREATE INDEX IF NOT EXISTS idx_weakness_tags_category ON weakness_tags(category);
@@ -6147,6 +6369,14 @@ var WEAKNESS_CATEGORIES2 = /* @__PURE__ */ new Set([
 ]);
 var SEVERITIES = /* @__PURE__ */ new Set(["low", "medium", "high"]);
 var ANALYSIS_BACKENDS = /* @__PURE__ */ new Set(["claude", "ollama"]);
+var SETTING_DEFAULTS = Object.freeze({
+  display_name: "",
+  cat_avatar: "orange-tabby",
+  chesscom_username: "lastautumnleaf1",
+  engine_skill_level: "10",
+  theme: "cat"
+});
+var SETTING_KEYS = new Set(Object.keys(SETTING_DEFAULTS));
 function assertDb(db2) {
   if (!db2 || typeof db2.execute !== "function" || typeof db2.run !== "function" || typeof db2.query !== "function") {
     throw new TypeError("db must be a CapacitorSQLite connection.");
@@ -6204,14 +6434,23 @@ function timestampSourceFor(move, mode) {
   return value;
 }
 async function withTransaction(db2, operation) {
-  await db2.execute("BEGIN IMMEDIATE");
+  const usesNativeTransactionApi = typeof db2.beginTransaction === "function" && typeof db2.commitTransaction === "function" && typeof db2.rollbackTransaction === "function";
+  if (usesNativeTransactionApi) await db2.beginTransaction();
+  else await db2.execute("BEGIN IMMEDIATE");
   try {
-    const result = await operation();
-    await db2.execute("COMMIT");
+    const transactionDb = usesNativeTransactionApi ? {
+      run: (statement, values = []) => db2.run(statement, values, false),
+      execute: (statements) => db2.execute(statements, false),
+      query: db2.query.bind(db2)
+    } : db2;
+    const result = await operation(transactionDb);
+    if (usesNativeTransactionApi) await db2.commitTransaction();
+    else await db2.execute("COMMIT");
     return result;
   } catch (error) {
     try {
-      await db2.execute("ROLLBACK");
+      if (usesNativeTransactionApi) await db2.rollbackTransaction();
+      else await db2.execute("ROLLBACK");
     } catch {
     }
     throw error;
@@ -6346,8 +6585,8 @@ async function saveGameSession(db2, summary) {
     ) VALUES (?, ?, ?, 'completed', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `;
   const date = summary.date ?? summary.moves[0]?.timestamp ?? (/* @__PURE__ */ new Date()).toISOString();
-  return withTransaction(db2, async () => {
-    await db2.run(insertGameSql, [
+  return withTransaction(db2, async (transactionDb) => {
+    await transactionDb.run(insertGameSql, [
       summary.id,
       date,
       summary.mode,
@@ -6364,7 +6603,7 @@ async function saveGameSession(db2, summary) {
       summary.analysis_engine ?? null,
       summary.analysis_depth ?? null
     ]);
-    await insertMoves(db2, summary);
+    await insertMoves(transactionDb, summary);
     return summary.id;
   });
 }
@@ -6384,10 +6623,10 @@ async function createQueuedGames(db2, games) {
       id, date, mode, status, result, seeded_weakness, seed_puzzle_id, start_fen, current_fen
     ) VALUES (?, ?, 'practice', 'queued', NULL, ?, ?, ?, ?)
   `;
-  return withTransaction(db2, async () => {
+  return withTransaction(db2, async (transactionDb) => {
     const ids = [];
     for (const game of games) {
-      await db2.run(insertSql, [
+      await transactionDb.run(insertSql, [
         game.id,
         game.date ?? (/* @__PURE__ */ new Date()).toISOString(),
         game.seeded_weakness ?? null,
@@ -6425,8 +6664,8 @@ async function completeGameSession(db2, summary) {
   assertDb(db2);
   validateSessionHeader(summary);
   const date = summary.moves[0]?.timestamp ?? (/* @__PURE__ */ new Date()).toISOString();
-  return withTransaction(db2, async () => {
-    const result = await db2.run(`
+  return withTransaction(db2, async (transactionDb) => {
+    const result = await transactionDb.run(`
       UPDATE games
       SET date = ?, mode = ?, status = 'completed', result = ?,
           seeded_weakness = ?, seed_puzzle_id = ?, start_fen = ?, current_fen = ?
@@ -6442,11 +6681,11 @@ async function completeGameSession(db2, summary) {
       summary.id
     ]);
     if (Number(result.changes?.changes) !== 1) {
-      const res = await db2.query("SELECT status FROM games WHERE id = ?", [summary.id]);
+      const res = await transactionDb.query("SELECT status FROM games WHERE id = ?", [summary.id]);
       const current = res.values && res.values.length > 0 ? res.values[0].status : null;
       throw new Error(`Cannot complete game ${summary.id} from status ${current ?? "missing"}.`);
     }
-    await insertMoves(db2, summary);
+    await insertMoves(transactionDb, summary);
     return summary.id;
   });
 }
@@ -6524,14 +6763,14 @@ async function saveWeaknessTags(db2, moveId, tags) {
     INSERT INTO weakness_tags (move_id, category, severity, source)
     VALUES (?, ?, ?, ?)
   `;
-  return withTransaction(db2, async () => {
+  return withTransaction(db2, async (transactionDb) => {
     const ids = [];
     for (const tag of normalizedTags) {
       if (typeof tag.category !== "string" || !tag.category) throw new TypeError("tag.category must be a non-empty string.");
       if (typeof tag.severity !== "string" || !tag.severity) throw new TypeError("tag.severity must be a non-empty string.");
       const source = tag.source ?? "ai_classification";
       if (typeof source !== "string" || !source) throw new TypeError("tag.source must be a non-empty string.");
-      const result = await db2.run(insertTagSql, [moveId, tag.category, tag.severity, source]);
+      const result = await transactionDb.run(insertTagSql, [moveId, tag.category, tag.severity, source]);
       ids.push(Number(result.changes?.lastId));
     }
     return ids;
@@ -6568,11 +6807,11 @@ async function saveMoveClassification(db2, moveId, result) {
   } else if (typeof result.error !== "string" || !result.error) {
     throw new TypeError("An unclassified result requires a non-empty error.");
   }
-  return withTransaction(db2, async () => {
-    const moveRes = await db2.query("SELECT id FROM moves WHERE id = ?", [moveId]);
+  return withTransaction(db2, async (transactionDb) => {
+    const moveRes = await transactionDb.query("SELECT id FROM moves WHERE id = ?", [moveId]);
     if (!moveRes.values || moveRes.values.length === 0) throw new Error(`Move not found: ${moveId}`);
-    await db2.run("UPDATE move_classifications SET is_current = 0 WHERE move_id = ? AND is_current = 1", [moveId]);
-    const inserted = await db2.run(`
+    await transactionDb.run("UPDATE move_classifications SET is_current = 0 WHERE move_id = ? AND is_current = 1", [moveId]);
+    const inserted = await transactionDb.run(`
       INSERT INTO move_classifications (
         move_id, status, category, severity, rationale, error, attempts,
         model_used, backend, prompt_version, prompt_hash, analysis_timestamp, is_current
@@ -6593,7 +6832,7 @@ async function saveMoveClassification(db2, moveId, result) {
     ]);
     const classificationId = Number(inserted.changes?.lastId);
     if (result.status === "classified") {
-      await db2.run(`
+      await transactionDb.run(`
         INSERT INTO weakness_tags (move_id, category, severity, source, classification_id)
         VALUES (?, ?, ?, 'ai_classification', ?)
       `, [moveId, value.category, value.severity, classificationId]);
@@ -6645,6 +6884,84 @@ async function getWeaknessTally(db2, { sinceGameId } = {}) {
   `;
   const res = await db2.query(sql, params);
   return (res.values || []).map((row) => ({ category: row.category, count: Number(row.count) }));
+}
+async function getProfileStats(db2, { recentLimit = 10 } = {}) {
+  assertDb(db2);
+  if (!Number.isInteger(recentLimit) || recentLimit < 1 || recentLimit > 50) {
+    throw new RangeError("recentLimit must be an integer from 1 to 50.");
+  }
+  const totalsRes = await db2.query(`
+    SELECT
+      COUNT(*) AS total_sessions,
+      COALESCE(SUM(move_count), 0) AS total_moves
+    FROM (
+      SELECT g.id, COUNT(m.id) AS move_count
+      FROM games g
+      LEFT JOIN moves m ON m.game_id = g.id
+      WHERE g.status IN ('completed', 'analyzed')
+      GROUP BY g.id
+    )
+  `);
+  const totals = totalsRes.values?.[0] ?? { total_sessions: 0, total_moves: 0 };
+  const recentRes = await db2.query(`
+    SELECT g.id, g.date, g.seeded_weakness, g.result, g.status, COUNT(m.id) AS move_count
+    FROM games g
+    LEFT JOIN moves m ON m.game_id = g.id
+    WHERE g.status IN ('completed', 'analyzed')
+    GROUP BY g.id
+    ORDER BY COALESCE(g.date, '') DESC, g.rowid DESC
+    LIMIT ?
+  `, [recentLimit]);
+  return {
+    totalSessions: Number(totals.total_sessions ?? 0),
+    totalMoves: Number(totals.total_moves ?? 0),
+    weaknessTally: await getWeaknessTally(db2),
+    recentSessions: (recentRes.values || []).map((row) => ({
+      ...row,
+      move_count: Number(row.move_count ?? 0)
+    }))
+  };
+}
+async function getSettings(db2) {
+  assertDb(db2);
+  const res = await db2.query("SELECT key, value FROM settings");
+  const settings2 = { ...SETTING_DEFAULTS };
+  for (const row of res.values || []) {
+    if (SETTING_KEYS.has(row.key)) settings2[row.key] = String(row.value);
+  }
+  return settings2;
+}
+async function setSetting(db2, key, value) {
+  assertDb(db2);
+  if (!SETTING_KEYS.has(key)) throw new RangeError(`Unknown setting: ${key}`);
+  const normalized = String(value ?? "").trim();
+  if (key === "engine_skill_level") {
+    const level = Number(normalized);
+    if (!Number.isInteger(level) || level < 0 || level > 20) {
+      throw new RangeError("engine_skill_level must be an integer from 0 to 20.");
+    }
+  }
+  if (key === "theme" && !["cat", "panda", "black-cat", "bunny", "fox", "corgi", "koala", "raccoon", "otter", "red-panda"].includes(normalized)) {
+    throw new RangeError("Unknown animal theme.");
+  }
+  if (key === "cat_avatar" && !["orange-tabby", "tuxedo", "calico", "black-cat"].includes(normalized)) {
+    throw new RangeError("Unknown cat avatar.");
+  }
+  await db2.run(`
+    INSERT INTO settings (key, value) VALUES (?, ?)
+    ON CONFLICT(key) DO UPDATE SET value = excluded.value
+  `, [key, normalized]);
+  return normalized;
+}
+async function resetUserData(db2) {
+  assertDb(db2);
+  return withTransaction(db2, async (transactionDb) => {
+    await transactionDb.execute("DELETE FROM weakness_tags;");
+    await transactionDb.execute("DELETE FROM move_classifications;");
+    await transactionDb.execute("DELETE FROM moves;");
+    await transactionDb.execute("DELETE FROM games;");
+    await transactionDb.execute("DELETE FROM settings;");
+  });
 }
 
 // storage/mobilePuzzleDb.js
@@ -6765,6 +7082,403 @@ var MobileSqlitePuzzleLibrary = class {
   }
 };
 
+// storage/corpusBootstrap.js
+var PUZZLE_SCHEMA = [
+  `CREATE TABLE IF NOT EXISTS puzzles (
+    puzzle_id TEXT PRIMARY KEY,
+    fen TEXT NOT NULL,
+    moves TEXT NOT NULL,
+    rating INTEGER,
+    step_count INTEGER NOT NULL CHECK(step_count > 0)
+  )`,
+  `CREATE TABLE IF NOT EXISTS puzzle_themes (
+    theme TEXT NOT NULL,
+    puzzle_id TEXT NOT NULL REFERENCES puzzles(puzzle_id) ON DELETE CASCADE,
+    PRIMARY KEY (theme, puzzle_id)
+  ) WITHOUT ROWID`,
+  "CREATE INDEX IF NOT EXISTS idx_puzzles_step_count ON puzzles(step_count)",
+  "CREATE INDEX IF NOT EXISTS idx_puzzle_themes_puzzle_id ON puzzle_themes(puzzle_id)",
+  `CREATE TABLE IF NOT EXISTS corpus_meta (
+    key TEXT PRIMARY KEY,
+    value TEXT NOT NULL
+  )`
+];
+function assertDb2(db2) {
+  if (!db2?.execute || !db2?.run || !db2?.query) {
+    throw new TypeError("db must be an async SQLite connection.");
+  }
+}
+async function ensureCorpusSchema(db2) {
+  assertDb2(db2);
+  await db2.execute("PRAGMA foreign_keys = ON;");
+  for (const statement of PUZZLE_SCHEMA) await db2.execute(`${statement};`);
+}
+async function getCorpusStatus(db2) {
+  assertDb2(db2);
+  await ensureCorpusSchema(db2);
+  const countRes = await db2.query("SELECT COUNT(*) AS count FROM puzzles");
+  const metaRes = await db2.query("SELECT key, value FROM corpus_meta WHERE key IN ('corpus_version', 'corpus_sha256')");
+  const meta = Object.fromEntries((metaRes.values || []).map((row) => [row.key, row.value]));
+  return {
+    populated: Number(countRes.values?.[0]?.count ?? 0) > 0,
+    puzzleCount: Number(countRes.values?.[0]?.count ?? 0),
+    version: meta.corpus_version ?? null,
+    sha256: meta.corpus_sha256 ?? null
+  };
+}
+function hex(bytes) {
+  return [...new Uint8Array(bytes)].map((byte) => byte.toString(16).padStart(2, "0")).join("");
+}
+async function readResponseBytes(response, onProgress) {
+  if (!response.ok) throw new Error(`Corpus download failed with HTTP ${response.status}.`);
+  const total = Number(response.headers.get("content-length") || 0);
+  if (!response.body?.getReader) {
+    const bytes2 = new Uint8Array(await response.arrayBuffer());
+    onProgress?.({ phase: "download", loaded: bytes2.length, total, percent: total ? 100 : null });
+    return bytes2;
+  }
+  const chunks = [];
+  let loaded = 0;
+  const reader = response.body.getReader();
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    chunks.push(value);
+    loaded += value.length;
+    onProgress?.({
+      phase: "download",
+      loaded,
+      total,
+      percent: total ? Math.min(100, Math.round(loaded / total * 100)) : null
+    });
+  }
+  const bytes = new Uint8Array(loaded);
+  let offset = 0;
+  for (const chunk of chunks) {
+    bytes.set(chunk, offset);
+    offset += chunk.length;
+  }
+  return bytes;
+}
+async function decompressGzip(bytes) {
+  if (typeof DecompressionStream !== "function") {
+    throw new Error("This WebView does not support gzip decompression.");
+  }
+  const stream = new Blob([bytes]).stream().pipeThrough(new DecompressionStream("gzip"));
+  return await new Response(stream).text();
+}
+function validatePuzzle(record) {
+  if (!record || typeof record !== "object") throw new Error("Corpus row must be an object.");
+  for (const field of ["puzzleId", "fen", "moves"]) {
+    if (typeof record[field] !== "string" || !record[field].trim()) {
+      throw new Error(`Corpus row has an invalid ${field}.`);
+    }
+  }
+  if (!Number.isInteger(record.stepCount) || record.stepCount < 1) {
+    throw new Error(`Corpus row ${record.puzzleId} has an invalid stepCount.`);
+  }
+  if (!Array.isArray(record.themes) || record.themes.some((theme) => typeof theme !== "string" || !theme)) {
+    throw new Error(`Corpus row ${record.puzzleId} has invalid themes.`);
+  }
+}
+async function importRows(db2, text, manifest, onProgress) {
+  const lines = text.split(/\r?\n/).filter(Boolean);
+  if (lines.length !== manifest.puzzleCount) {
+    throw new Error(`Corpus count mismatch: manifest=${manifest.puzzleCount}, artifact=${lines.length}.`);
+  }
+  const usesNativeTransactionApi = typeof db2.beginTransaction === "function" && typeof db2.commitTransaction === "function" && typeof db2.rollbackTransaction === "function";
+  if (usesNativeTransactionApi) await db2.beginTransaction();
+  else await db2.execute("BEGIN IMMEDIATE;");
+  const transactionDb = usesNativeTransactionApi ? {
+    run: (statement, values = []) => db2.run(statement, values, false),
+    execute: (statements) => db2.execute(statements, false)
+  } : db2;
+  try {
+    await transactionDb.execute("DELETE FROM puzzle_themes;");
+    await transactionDb.execute("DELETE FROM puzzles;");
+    for (let index = 0; index < lines.length; index += 1) {
+      const record = JSON.parse(lines[index]);
+      validatePuzzle(record);
+      await transactionDb.run(
+        "INSERT INTO puzzles (puzzle_id, fen, moves, rating, step_count) VALUES (?, ?, ?, ?, ?)",
+        [record.puzzleId, record.fen, record.moves, record.rating ?? null, record.stepCount]
+      );
+      for (const theme of [...new Set(record.themes)]) {
+        await transactionDb.run("INSERT INTO puzzle_themes (theme, puzzle_id) VALUES (?, ?)", [theme, record.puzzleId]);
+      }
+      if ((index + 1) % 100 === 0 || index + 1 === lines.length) {
+        onProgress?.({
+          phase: "import",
+          loaded: index + 1,
+          total: lines.length,
+          percent: Math.round((index + 1) / lines.length * 100)
+        });
+      }
+    }
+    await transactionDb.run(`
+      INSERT INTO corpus_meta (key, value) VALUES ('corpus_version', ?)
+      ON CONFLICT(key) DO UPDATE SET value = excluded.value
+    `, [manifest.version]);
+    await transactionDb.run(`
+      INSERT INTO corpus_meta (key, value) VALUES ('corpus_sha256', ?)
+      ON CONFLICT(key) DO UPDATE SET value = excluded.value
+    `, [manifest.sha256.toLowerCase()]);
+    if (usesNativeTransactionApi) await db2.commitTransaction();
+    else await db2.execute("COMMIT;");
+  } catch (error) {
+    try {
+      if (usesNativeTransactionApi) await db2.rollbackTransaction();
+      else await db2.execute("ROLLBACK;");
+    } catch {
+    }
+    throw error;
+  }
+}
+async function downloadAndImportCorpus({
+  db: db2,
+  manifest,
+  fetchImpl = globalThis.fetch,
+  onProgress,
+  force = false
+}) {
+  assertDb2(db2);
+  if (!manifest?.url || !manifest?.sha256 || !manifest?.version || !Number.isInteger(manifest?.puzzleCount)) {
+    throw new TypeError("A complete corpus manifest is required.");
+  }
+  if (typeof fetchImpl !== "function") throw new TypeError("fetchImpl must be a function.");
+  const current = await getCorpusStatus(db2);
+  if (!force && current.populated && current.version === manifest.version) {
+    return { ...current, skipped: true };
+  }
+  const response = await fetchImpl(manifest.url);
+  const compressed = await readResponseBytes(response, onProgress);
+  const digest = hex(await crypto.subtle.digest("SHA-256", compressed));
+  if (digest !== manifest.sha256.toLowerCase()) {
+    throw new Error(`Corpus checksum mismatch: expected ${manifest.sha256.toLowerCase()}, received ${digest}.`);
+  }
+  onProgress?.({ phase: "verify", loaded: compressed.length, total: compressed.length, percent: 100 });
+  const text = await decompressGzip(compressed);
+  await importRows(db2, text, manifest, onProgress);
+  return { ...await getCorpusStatus(db2), skipped: false };
+}
+
+// www/themes.js
+var THEMES = Object.freeze({
+  cat: Object.freeze({ label: "Orange cat", emoji: "\u{1F431}", subtitle: "Orange Tabby Edition \u{1F43E}", engine: "Orange Cat" }),
+  panda: Object.freeze({ label: "Panda", emoji: "\u{1F43C}", subtitle: "Bamboo Panda Edition \u{1F38B}", engine: "Panda" }),
+  "black-cat": Object.freeze({ label: "Black cat", emoji: "\u{1F408}\u200D\u2B1B", subtitle: "Midnight Cat Edition \u{1F319}", engine: "Midnight Cat" }),
+  bunny: Object.freeze({ label: "Bunny", emoji: "\u{1F430}", subtitle: "Berry Bunny Edition \u{1F955}", engine: "Bunny" }),
+  fox: Object.freeze({ label: "Fox", emoji: "\u{1F98A}", subtitle: "Woodland Fox Edition \u{1F342}", engine: "Fox" }),
+  corgi: Object.freeze({ label: "Corgi", emoji: "\u{1F436}", subtitle: "Royal Corgi Edition \u{1F9B4}", engine: "Corgi" }),
+  koala: Object.freeze({ label: "Koala", emoji: "\u{1F428}", subtitle: "Eucalyptus Koala Edition \u{1F33F}", engine: "Koala" }),
+  raccoon: Object.freeze({ label: "Raccoon", emoji: "\u{1F99D}", subtitle: "Moonlit Raccoon Edition \u2728", engine: "Raccoon" }),
+  otter: Object.freeze({ label: "Otter", emoji: "\u{1F9A6}", subtitle: "River Otter Edition \u{1FAE7}", engine: "Otter" }),
+  "red-panda": Object.freeze({ label: "Red panda", emoji: "\u{1F43E}", subtitle: "Forest Red Panda Edition \u{1F38B}", engine: "Red Panda" })
+});
+function getTheme(themeId) {
+  return THEMES[themeId] ?? THEMES.cat;
+}
+function themeOptions(selectedTheme = "cat") {
+  return Object.entries(THEMES).map(
+    ([value, theme]) => `<option value="${value}"${value === selectedTheme ? " selected" : ""}>${theme.emoji} ${theme.label}</option>`
+  ).join("");
+}
+function applyAppTheme(themeId, root = document.documentElement) {
+  const id = THEMES[themeId] ? themeId : "cat";
+  const theme = THEMES[id];
+  root.dataset.theme = id;
+  document.querySelector(".brand-avatar")?.replaceChildren(theme.emoji);
+  const subtitle = document.querySelector(".brand-sub");
+  if (subtitle) subtitle.textContent = theme.subtitle;
+  const firstRun = document.querySelector(".first-run-cat");
+  if (firstRun) firstRun.textContent = theme.emoji;
+  return theme;
+}
+var CHESSCOM_COLORS = Object.freeze({
+  cat: ["#E67E22", "#D35400", "#F7EFE2", "#C8854E", "#7A4526"],
+  panda: ["#2F855A", "#276749", "#F7FAF7", "#7BAE7F", "#202A24"],
+  "black-cat": ["#9F7AEA", "#6B46C1", "#E9E6F2", "#4B4658", "#17151D"],
+  bunny: ["#E96B9A", "#C44575", "#FFF4F7", "#DFA2B8", "#71495A"],
+  fox: ["#E76F31", "#B94718", "#FFF1DF", "#C76B3D", "#66321F"],
+  corgi: ["#D99024", "#9D5D12", "#FFF3D8", "#C68A43", "#5C371D"],
+  koala: ["#3C8D89", "#24615E", "#F0F4F3", "#879A99", "#394544"],
+  raccoon: ["#3F8C95", "#276069", "#EDF2F2", "#738386", "#30373A"],
+  otter: ["#2799A3", "#17636B", "#FFF0D5", "#A26D42", "#4C3022"],
+  "red-panda": ["#4F8B43", "#315E2B", "#FFF0D8", "#B95B32", "#5D2A20"]
+});
+function chessComCssForTheme(baseCss, themeId) {
+  const colors = CHESSCOM_COLORS[themeId] ?? CHESSCOM_COLORS.cat;
+  return `${baseCss}
+:root {
+    --chess-analyst-accent: ${colors[0]};
+    --chess-analyst-accent-dark: ${colors[1]};
+    --chess-analyst-board-light: ${colors[2]};
+    --chess-analyst-board-dark: ${colors[3]};
+    --chess-analyst-board-frame: ${colors[4]};
+    --chess-analyst-highlight: color-mix(in srgb, ${colors[0]} 48%, transparent);
+  }`;
+}
+
+// www/profile.js
+var LABELS = Object.freeze({
+  tactical: "Tactical",
+  king_safety: "King safety",
+  pawn_structure: "Pawn structure",
+  piece_activity: "Piece activity",
+  positional_judgment: "Positional judgment",
+  endgame_technique: "Endgame technique",
+  practical_time: "Practical / time"
+});
+var AVATARS = Object.freeze([
+  ["orange-tabby", "\u{1F431} Orange tabby"],
+  ["tuxedo", "\u{1F638} Tuxedo"],
+  ["calico", "\u{1F63A} Calico"],
+  ["black-cat", "\u{1F408}\u200D\u2B1B Black cat"]
+]);
+function engineDifficultyLabel(level) {
+  const value = Number(level);
+  if (value <= 4) return "Gentle kitten";
+  if (value <= 9) return "Curious hunter";
+  if (value <= 14) return "Sharp tabby";
+  if (value <= 18) return "Fierce prowler";
+  return "Grandmaster cat";
+}
+function escapeHtml(value) {
+  return String(value ?? "").replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;").replaceAll('"', "&quot;").replaceAll("'", "&#39;");
+}
+function formatDate(value) {
+  if (!value) return "Date unavailable";
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? escapeHtml(value) : date.toLocaleDateString();
+}
+function weaknessBars(tally) {
+  if (!tally.length) {
+    return '<p class="empty-state">No weakness data yet \u2014 complete and analyze sessions to reveal your hunting pattern.</p>';
+  }
+  const counts = new Map(tally.map((item) => [item.category, Number(item.count)]));
+  const max = Math.max(...counts.values(), 1);
+  return `<div class="weakness-chart" role="img" aria-label="Weakness breakdown">${WEAKNESS_CATEGORIES.map((category) => {
+    const count = counts.get(category) ?? 0;
+    const width = Math.round(count / max * 100);
+    return `<div class="weakness-row"><div class="weakness-label"><span>${LABELS[category]}</span><strong>${count}</strong></div><div class="bar-track"><span class="bar-fill category-${category}" style="width:${width}%"></span></div></div>`;
+  }).join("")}</div>`;
+}
+function recentSessions(sessions) {
+  if (!sessions.length) {
+    return '<p class="empty-state">No sessions yet \u2014 tap Pounce on Weakness to start your first hunt.</p>';
+  }
+  return `<ul class="recent-list">${sessions.map((session) => `<li><div><strong>${formatDate(session.date)}</strong><span>${escapeHtml(LABELS[session.seeded_weakness] ?? session.seeded_weakness ?? "General practice")}</span></div><div class="session-result"><strong>${escapeHtml(session.result ?? "Completed")}</strong><span>${Number(session.move_count ?? 0)} moves</span></div></li>`).join("")}</ul>`;
+}
+function renderProfile({ container, stats, settings: settings2, corpusStatus: corpusStatus2, focus }) {
+  if (!container) throw new TypeError("profile container is required.");
+  const level = Number(settings2.engine_skill_level ?? 10);
+  const avatarOptions = AVATARS.map(([value, label]) => `<option value="${value}"${settings2.cat_avatar === value ? " selected" : ""}>${label}</option>`).join("");
+  const enoughProgress = stats.totalSessions >= 3;
+  const activeTheme = getTheme(settings2.theme);
+  container.innerHTML = `
+    <section class="profile-hero">
+      <span class="profile-avatar">${activeTheme.emoji}</span>
+      <div><h2>${escapeHtml(settings2.display_name || "Your Cat Analyst Profile")}</h2><p>${stats.totalSessions ? `${stats.totalSessions} hunts completed` : "Your training story starts here."}</p></div>
+    </section>
+    <section class="profile-card" aria-labelledby="stats-heading">
+      <h2 id="stats-heading">Stats</h2>
+      <div class="stat-grid"><div><strong>${stats.totalSessions}</strong><span>Sessions</span></div><div><strong>${stats.totalMoves}</strong><span>Moves logged</span></div></div>
+      <h3>Current focus</h3>
+      <p class="focus-pill">${focus?.weaknessCategory ? escapeHtml(LABELS[focus.weaknessCategory] ?? focus.weaknessCategory) : "No focus yet"}</p>
+      <h3>Weakness breakdown</h3>${weaknessBars(stats.weaknessTally)}
+      <h3>Recent sessions</h3>${recentSessions(stats.recentSessions)}
+      <h3>Progress over time</h3>
+      ${enoughProgress ? '<p class="progress-ready">Progress tracking is unlocked. More analyzed sessions will make trends clearer.</p>' : '<p class="empty-state">Complete at least 3 sessions to unlock progress-over-time insights.</p>'}
+    </section>
+    <section class="profile-card" aria-labelledby="settings-heading">
+      <h2 id="settings-heading">Settings</h2>
+      <form id="settings-form" class="settings-form">
+        <label>Display name<input name="display_name" maxlength="40" value="${escapeHtml(settings2.display_name)}" autocomplete="name"></label>
+        <label>Cat avatar<select name="cat_avatar">${avatarOptions}</select></label>
+        <label>chess.com username<input name="chesscom_username" maxlength="50" value="${escapeHtml(settings2.chesscom_username)}" autocomplete="off"></label>
+        <label>Engine difficulty <span id="engine-difficulty-label">${engineDifficultyLabel(level)}</span><input name="engine_skill_level" type="range" min="0" max="20" step="1" value="${level}"><output id="engine-level-output">${level}</output></label>
+        <label>Animal theme<select name="theme">${themeOptions(settings2.theme)}</select></label>
+        <button class="btn btn-primary" type="submit">Save settings</button>
+      </form>
+      <div class="corpus-status"><h3>Puzzle corpus</h3><p>${corpusStatus2.populated ? `Version ${escapeHtml(corpusStatus2.version ?? "unknown")} \u2022 ${corpusStatus2.puzzleCount.toLocaleString()} puzzles` : "Not downloaded yet"}</p><button id="btn-corpus-update" class="btn btn-secondary" type="button">${corpusStatus2.populated ? "Re-download corpus" : "Download corpus"}</button></div>
+      <div class="danger-zone"><h3>Reset all data</h3><p>Deletes your sessions, move history, weakness data, and settings. The downloaded puzzle corpus is kept.</p><button id="btn-reset-data" class="btn btn-danger" type="button">Reset all training data</button></div>
+    </section>`;
+}
+
+// www/chesscom-theme.css
+var chesscom_theme_default = '/**\r\n * Chess.com Mobile Visual Theme Overlay \u2014 Orange Tabby Theme Pack\r\n * THEME-ONLY: Visual styling only. No board reading, no assistance during live play.\r\n */\r\n\r\n:root {\r\n  --chess-analyst-accent: #E67E22;\r\n  --chess-analyst-accent-dark: #D35400;\r\n  --chess-analyst-board-light: #F7EFE2;\r\n  --chess-analyst-board-dark: #C8854E;\r\n  --chess-analyst-board-frame: #7A4526;\r\n  --chess-analyst-highlight: rgba(230, 126, 34, 0.45);\r\n}\r\n\r\n/* Page Background */\r\nbody, #board-layout-main, .board-layout-main {\r\n  background-color: #FAF6F0 !important;\r\n}\r\n\r\n/* Web Component Board and Squares */\r\nwc-chess-board, chess-board, .board {\n  background-image: conic-gradient(\n    var(--chess-analyst-board-dark) 25%,\n    var(--chess-analyst-board-light) 0 50%,\n    var(--chess-analyst-board-dark) 0 75%,\n    var(--chess-analyst-board-light) 0\n  ) !important;\n  background-size: 25% 25% !important;\n  background-repeat: repeat !important;\n  border-radius: 10px !important;\n  box-shadow: 0 4px 16px rgba(110, 61, 48, 0.18) !important;\r\n  border: 2px solid var(--chess-analyst-board-frame) !important;\r\n}\r\n\r\nwc-chess-board .light, chess-board .light, .board .light,\r\n.square-light, [class*="square-"][class*="light"] {\r\n  background-color: var(--chess-analyst-board-light) !important;\r\n}\r\n\r\nwc-chess-board .dark, chess-board .dark, .board .dark,\r\n.square-dark, [class*="square-"][class*="dark"] {\r\n  background-color: var(--chess-analyst-board-dark) !important;\r\n}\r\n\r\n/* Move Highlights */\r\n.highlight, [class*="highlight"], .selected-square {\r\n  background-color: var(--chess-analyst-highlight) !important;\r\n}\r\n\r\n/* Buttons & UI Accents */\r\nbutton, [role="button"], .ui_v5-button-component {\r\n  border-radius: 10px !important;\r\n}\r\n\r\n.ui_v5-button-primary {\r\n  background-color: var(--chess-analyst-accent) !important;\r\n  border-color: var(--chess-analyst-accent-dark) !important;\r\n}\r\n';
+
+// www/chesscomView.js
+var CHESSCOM_URL = "https://www.chess.com/play/online";
+var THEME_STYLE_ID = "cat-analyst-theme-overlay";
+function buildThemeInjectionScript(css) {
+  if (typeof css !== "string" || !css.trim()) throw new TypeError("Chess.com theme CSS is required.");
+  return `(() => {
+    if (document.head) {
+      const style = document.getElementById(${JSON.stringify(THEME_STYLE_ID)}) || document.createElement('style');
+      style.id = ${JSON.stringify(THEME_STYLE_ID)};
+      style.textContent = ${JSON.stringify(css)};
+      if (!style.isConnected) document.head.appendChild(style);
+    }
+  })();`;
+}
+function createChessComView({ inAppBrowser, themeCss, browserOptions = {} }) {
+  if (!inAppBrowser?.openWebView || !inAppBrowser?.executeScript || !inAppBrowser?.addListener) {
+    throw new TypeError("A controllable embedded in-app browser is required.");
+  }
+  let currentThemeCss = themeCss;
+  let browserId = null;
+  let listenersReady = false;
+  async function inject(event = {}) {
+    if (!browserId || event.id && event.id !== browserId) return;
+    await inAppBrowser.executeScript({ id: browserId, code: buildThemeInjectionScript(currentThemeCss) });
+  }
+  async function ensureListeners() {
+    if (listenersReady) return;
+    listenersReady = true;
+    await inAppBrowser.addListener("browserPageLoaded", (event) => {
+      void inject(event);
+    });
+    await inAppBrowser.addListener("urlChangeEvent", (event) => {
+      void inject(event);
+    });
+    await inAppBrowser.addListener("closeEvent", (event) => {
+      if (!event.id || event.id === browserId) browserId = null;
+    });
+  }
+  return {
+    get browserId() {
+      return browserId;
+    },
+    get injectionScript() {
+      return buildThemeInjectionScript(currentThemeCss);
+    },
+    async setThemeCss(css) {
+      currentThemeCss = css;
+      if (browserId) await inject({ id: browserId });
+    },
+    async open() {
+      await ensureListeners();
+      if (browserId && inAppBrowser.show) {
+        await inAppBrowser.show({ id: browserId });
+        await inject({ id: browserId });
+        return browserId;
+      }
+      const result = await inAppBrowser.openWebView({
+        url: CHESSCOM_URL,
+        persistWebViewData: true,
+        isPresentAfterPageLoad: true,
+        preShowScript: buildThemeInjectionScript(currentThemeCss),
+        preShowScriptInjectionTime: "pageLoad",
+        ...browserOptions
+      });
+      browserId = result.id;
+      await inject({ id: browserId });
+      return browserId;
+    }
+  };
+}
+
 // www/app.js
 var PIECES = {
   p: "\u265F",
@@ -6802,8 +7516,28 @@ var activeSession = null;
 var selectedSquare = null;
 var boardFlipped = true;
 var isEngineThinking = false;
+var settings = null;
+var corpusStatus = { populated: false, puzzleCount: 0, version: null };
+var chessComView = createChessComView({
+  inAppBrowser: InAppBrowser,
+  themeCss: chesscom_theme_default,
+  browserOptions: {
+    toolbarType: ToolBarType.NAVIGATION,
+    title: "Chess.com \u2022 Cat Theme",
+    backgroundColor: "white",
+    activeNativeNavigationForWebview: true,
+    showReloadButton: true,
+    closeAction: CloseAction.HIDE,
+    enabledSafeTopMargin: true
+  }
+});
 function setStatus(text) {
-  if (systemStatusEl) systemStatusEl.textContent = `${text} \u2022 Cat Analyst`;
+  if (systemStatusEl) systemStatusEl.textContent = `${text} \u2022 ${getTheme(settings?.theme).label} Theme`;
+}
+async function activateTheme(themeId) {
+  const theme = applyAppTheme(themeId);
+  await chessComView.setThemeCss(chessComCssForTheme(chesscom_theme_default, themeId));
+  return theme;
 }
 function setMoveStatus(text) {
   if (moveStatusEl) moveStatusEl.textContent = text;
@@ -6885,10 +7619,21 @@ function renderBoard() {
         div.classList.add("in-check");
       }
       if (piece) {
-        const span = document.createElement("span");
-        span.textContent = piece.color === "w" ? PIECES[piece.type.toUpperCase()] : PIECES[piece.type];
-        span.className = `piece ${piece.color === "w" ? "white-piece" : "black-piece"}`;
-        div.appendChild(span);
+        const themeId = settings?.theme ?? "cat";
+        const img = document.createElement("img");
+        img.src = `assets/pieces/${themeId}/${piece.color}/${piece.type}.png`;
+        img.alt = `${piece.color === "w" ? "White" : "Black"} ${piece.type}`;
+        img.className = `piece animal-piece ${piece.color === "w" ? "white-piece" : "black-piece"}`;
+        img.draggable = false;
+        img.dataset.piece = `${piece.color}${piece.type}`;
+        img.addEventListener("error", () => {
+          const fallback = document.createElement("span");
+          fallback.textContent = piece.color === "w" ? PIECES[piece.type.toUpperCase()] : PIECES[piece.type];
+          fallback.className = `piece ${piece.color === "w" ? "white-piece" : "black-piece"}`;
+          fallback.dataset.piece = `${piece.color}${piece.type}`;
+          img.replaceWith(fallback);
+        }, { once: true });
+        div.appendChild(img);
       }
       div.addEventListener("click", () => handleSquareClick(sq));
       boardEl.appendChild(div);
@@ -7058,6 +7803,126 @@ async function completeSession() {
     setFatal("Could not save the session.", err);
   }
 }
+function showPage(page) {
+  const profile = page === "profile";
+  el("practice-page")?.classList.toggle("hidden", profile);
+  el("profile-page")?.classList.toggle("hidden", !profile);
+  el("nav-practice")?.classList.toggle("active", !profile);
+  el("nav-profile")?.classList.toggle("active", profile);
+  if (profile) void refreshProfile();
+}
+async function openChessCom() {
+  setStatus("Opening themed Chess.com");
+  try {
+    await chessComView.open();
+    setStatus("Chess.com theme active");
+  } catch (error) {
+    console.error("Could not open embedded Chess.com", error);
+    setStatus("Chess.com could not open");
+    setMoveStatus("Embedded Chess.com failed to open. Check the connection and try again.");
+  }
+}
+function setCorpusProgress({ phase, percent }) {
+  const progress = el("corpus-progress");
+  const label = el("corpus-progress-label");
+  progress?.classList.remove("hidden");
+  if (progress && Number.isFinite(percent)) progress.value = percent;
+  if (label) {
+    const action = phase === "import" ? "Importing puzzles" : phase === "verify" ? "Verifying download" : "Downloading puzzle pack";
+    label.textContent = Number.isFinite(percent) ? `${action}\u2026 ${percent}%` : `${action}\u2026`;
+  }
+}
+async function importCorpus({ force = false } = {}) {
+  const button = el("btn-download-corpus");
+  if (!CORPUS_MANIFEST.url || !CORPUS_MANIFEST.sha256) {
+    throw new Error("The M9 corpus release asset has not been published yet.");
+  }
+  if (button) button.disabled = true;
+  try {
+    corpusStatus = await downloadAndImportCorpus({
+      db,
+      manifest: CORPUS_MANIFEST,
+      force,
+      onProgress: setCorpusProgress
+    });
+    el("corpus-first-run")?.classList.add("hidden");
+    if (el("corpus-progress-label")) el("corpus-progress-label").textContent = `${corpusStatus.puzzleCount.toLocaleString()} puzzles ready.`;
+    if (!orchestrator) await initializePractice();
+    await refreshProfile();
+    setStatus("Ready");
+  } catch (error) {
+    console.error("Corpus import failed", error);
+    if (el("corpus-progress-label")) el("corpus-progress-label").textContent = `${error.message} Check your connection and try again.`;
+    throw error;
+  } finally {
+    if (button) button.disabled = false;
+  }
+}
+async function refreshProfile() {
+  if (!db) return;
+  settings = await getSettings(db);
+  await activateTheme(settings.theme);
+  const stats = await getProfileStats(db);
+  corpusStatus = await getCorpusStatus(db);
+  let focus = null;
+  if (orchestrator && corpusStatus.populated) {
+    try {
+      focus = await orchestrator.getNextFocus();
+    } catch (error) {
+      console.warn("Could not resolve profile focus", error);
+    }
+  }
+  const container = el("profile-page");
+  renderProfile({ container, stats, settings, corpusStatus, focus });
+  const range = container.querySelector('[name="engine_skill_level"]');
+  range?.addEventListener("input", () => {
+    const output = el("engine-level-output");
+    const label = el("engine-difficulty-label");
+    if (output) output.textContent = range.value;
+    if (label) label.textContent = engineDifficultyLabel(range.value);
+  });
+  el("settings-form")?.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const form = new FormData(event.currentTarget);
+    for (const key of ["display_name", "cat_avatar", "chesscom_username", "engine_skill_level", "theme"]) {
+      await setSetting(db, key, form.get(key));
+    }
+    settings = await getSettings(db);
+    await activateTheme(settings.theme);
+    orchestrator?.setSkillLevel(Number(settings.engine_skill_level));
+    const display = el("engine-skill-display");
+    if (display) display.textContent = `Engine Skill: ${settings.engine_skill_level}`;
+    setStatus("Settings saved");
+    await refreshProfile();
+  });
+  el("btn-corpus-update")?.addEventListener("click", () => importCorpus({ force: true }).catch(() => {
+  }));
+  el("btn-reset-data")?.addEventListener("click", async () => {
+    if (!window.confirm("Delete all sessions, move history, weakness data, and settings? This cannot be undone.")) return;
+    await resetUserData(db);
+    activeSession = null;
+    setStatus("Training data reset");
+    await refreshProfile();
+  });
+}
+async function initializePractice() {
+  const puzzleLibrary = new MobileSqlitePuzzleLibrary(db);
+  await initEngine();
+  settings = await getSettings(db);
+  orchestrator = new TrainingOrchestrator({
+    db,
+    storage: mobileDb_exports,
+    puzzleLibrary,
+    engineFactory: () => engineClient,
+    skillLevel: Number(settings.engine_skill_level)
+  });
+  const display = el("engine-skill-display");
+  if (display) display.textContent = `Engine Skill: ${settings.engine_skill_level}`;
+  chess = new Chess();
+  renderBoard();
+  setStatus("Ready");
+  setMoveStatus('Tap "Pounce on Weakness" to begin.');
+}
 async function boot() {
   setStatus("Waking the cat\u2026");
   try {
@@ -7066,32 +7931,37 @@ async function boot() {
     setFatal("Could not open local storage. Sessions will not be saved.", err);
     return;
   }
-  let puzzleLibrary;
   try {
-    puzzleLibrary = new MobileSqlitePuzzleLibrary(db);
+    corpusStatus = await getCorpusStatus(db);
+    settings = await getSettings(db);
   } catch (err) {
-    setFatal("Could not open the puzzle library.", err);
+    setFatal("Could not inspect local app data.", err);
     return;
   }
-  try {
-    await initEngine();
-  } catch (err) {
-    setFatal("Stockfish failed to start.", err);
-    return;
+  if (corpusStatus.populated) {
+    try {
+      await initializePractice();
+    } catch (err) {
+      setFatal("Stockfish or the puzzle library failed to start.", err);
+      return;
+    }
+  } else {
+    chess = new Chess();
+    renderBoard();
+    el("corpus-first-run")?.classList.remove("hidden");
+    setStatus("Puzzle pack needed");
+    setMoveStatus("Download the one-time puzzle pack to begin.");
   }
-  orchestrator = new TrainingOrchestrator({
-    db,
-    storage: mobileDb_exports,
-    puzzleLibrary,
-    engineFactory: () => engineClient
-  });
-  chess = new Chess();
-  renderBoard();
-  setStatus("Ready");
-  setMoveStatus('Tap "Pounce on Weakness" to begin.');
   el("btn-start-target")?.addEventListener("click", startTargetedSession);
   el("btn-next-queued")?.addEventListener("click", startNextQueued);
   el("btn-complete")?.addEventListener("click", completeSession);
+  el("btn-download-corpus")?.addEventListener("click", () => importCorpus().catch(() => {
+  }));
+  el("nav-practice")?.addEventListener("click", () => showPage("practice"));
+  el("nav-profile")?.addEventListener("click", () => showPage("profile"));
+  el("nav-chesscom")?.addEventListener("click", () => {
+    void openChessCom();
+  });
   el("btn-flip")?.addEventListener("click", () => {
     boardFlipped = !boardFlipped;
     renderBoard();
@@ -7108,6 +7978,7 @@ async function boot() {
     el("tab-preview")?.classList.add("active");
     el("tab-moves")?.classList.remove("active");
   });
+  await refreshProfile();
 }
 document.addEventListener("DOMContentLoaded", boot);
 /*! Bundled license information:

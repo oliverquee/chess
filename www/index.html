@@ -33,7 +33,7 @@
     </header>
 
     <!-- Main Content Area -->
-    <main class="main-content">
+    <main id="practice-page" class="main-content app-page active-page">
       <!-- Target/Weakness Card -->
       <section class="target-card" id="target-card">
         <div class="target-card-header">
@@ -57,7 +57,7 @@
             <span class="player-avatar">🐈‍⬛</span>
             <div class="player-meta">
               <span class="player-name">Tabby Stockfish 18 Lite</span>
-              <span class="player-rating">Engine Skill: 10</span>
+              <span class="player-rating" id="engine-skill-display">Engine Skill: 10</span>
             </div>
           </div>
           <div class="eval-badge" id="engine-eval">Eval: +0.00</div>
@@ -124,14 +124,36 @@
       </section>
     </main>
 
+    <main id="profile-page" class="main-content app-page hidden" aria-live="polite">
+      <p class="empty-state">Loading your profile…</p>
+    </main>
+
+    <section id="corpus-first-run" class="first-run-overlay hidden" role="dialog" aria-modal="true" aria-labelledby="corpus-title">
+      <div class="first-run-card">
+        <div class="first-run-cat">🐱</div>
+        <h2 id="corpus-title">Stock the puzzle pond</h2>
+        <p>Cat Analyst needs a one-time puzzle download before your first hunt. It is under 5 MB and will be stored on this device.</p>
+        <p class="data-note">The download starts only when you tap the button, so you can wait for Wi-Fi.</p>
+        <progress id="corpus-progress" max="100" value="0" class="hidden"></progress>
+        <p id="corpus-progress-label" aria-live="polite">Ready when you are.</p>
+        <button id="btn-download-corpus" class="btn btn-primary" type="button">Download puzzle pack</button>
+      </div>
+    </section>
+
     <!-- Bottom Status Bar -->
     <footer class="app-footer">
       <div class="status-indicator">
         <span class="status-dot live"></span>
         <span id="system-status">Purr-fect • Orange Cat Theme Active</span>
       </div>
-      <div class="version-tag">M8 Capacitor</div>
+      <div class="version-tag">M9 Capacitor</div>
     </footer>
+
+    <nav class="bottom-nav" aria-label="Primary">
+      <button id="nav-practice" class="nav-tab active" type="button" aria-controls="practice-page">♟️<span>Practice</span></button>
+      <button id="nav-profile" class="nav-tab" type="button" aria-controls="profile-page">🐾<span>Profile</span></button>
+      <button id="nav-chesscom" class="nav-tab" type="button">♞<span>Chess.com</span></button>
+    </nav>
   </div>
 
   <script type="module" src="bundle.js"></script>

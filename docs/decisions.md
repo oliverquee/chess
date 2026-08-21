@@ -1,5 +1,60 @@
 # Decision log
 
+## 2026-08-20 — M9 addendum: embedded Chess.com theme-only surface
+
+**Status:** implemented; emulator selector verification pending
+
+The Chess.com tab uses `@capgo/capacitor-inappbrowser` 8.x because this
+checkout is on Capacitor 8 and the plugin supplies a native embedded WebView,
+`executeScript`, page-load and URL-change events, and persistent website data.
+It does not use `@capacitor/browser` or a Custom Tab. The orange-cat CSS is
+bundled as text, injected before the first display, and re-injected
+idempotently after full-page and SPA navigation. The WebView is hidden rather
+than destroyed from its toolbar so the same browser context and login can be
+reused; `persistWebViewData` is also explicitly enabled.
+
+The injected code may only create a `<style>` element, assign the bundled CSS,
+and append it to `document.head`. The app does not register page-to-host
+messaging, request cookies, capture page screenshots, or return DOM content.
+No board reading, position scraping, evaluation, or assistance is connected to
+this view. Completed-game import remains a separate post-hoc workflow.
+
+The existing selectors (`wc-chess-board`, `chess-board`, `.board`, square
+light/dark variants, highlights, and current Chess.com button classes) remain
+desktop-derived until the emulator opens the real mobile page. Actual observed
+coverage and any selector adjustments will be recorded here after that run.
+
+The emulator exposed that GitHub Release downloads are blocked by WebView CORS
+after GitHub redirects to its asset host. Capacitor's bundled native HTTP fetch
+patch is enabled for release downloads; the existing compressed SHA-256 check
+and atomic SQLite transaction remain the trust and rollback boundary.
+
+## 2026-08-20 — M9 mobile corpus delivery and durable profile settings
+
+**Status:** approved
+
+The mobile corpus is delivered as gzip-compressed JSON Lines rather than a
+prebuilt SQLite file. JSON Lines keeps the release artifact platform-neutral,
+allows every row to be validated before insertion, and supports one atomic
+transaction through the existing Capacitor SQLite connection. The curated
+artifact contains 7,200 puzzles and is 383,839 bytes compressed, so verifying
+the compressed SHA-256 before decompression remains safely bounded on the
+target device. Import is user-initiated, reports download/import progress, and
+records `corpus_version` and `corpus_sha256` only in the successful transaction.
+
+Selection scans the full official Lichess CC0 corpus and uses reservoir
+sampling across 48 balance cells: six seedable weakness categories, short and
+long ply buckets, and four rating bands from 800 through 2200. Each category
+contains 1,200 puzzles (600 short, 600 long), producing a non-arbitrary spread
+without shipping the multi-million-row source corpus to the phone.
+
+Profile preferences are rows in a mobile SQLite `settings` table. They are not
+stored in localStorage. Engine skill is read before constructing the
+`TrainingOrchestrator` and is passed into every new `PracticeSession`. Resetting
+training data removes games, moves, classifications, weakness tags, and
+settings while preserving the rebuildable downloaded corpus; corpus replacement
+has its own explicit re-download control.
+
 ## 2026-08-15 — Motif-ready Lichess practice start
 
 **Status:** approved
@@ -108,6 +163,13 @@ Key decisions:
    - Board container: `wc-chess-board, chess-board, .board`
    - Piece assets: `.piece.wp`, `.piece.wn`, `.piece.wb`, `.piece.wr`, `.piece.wq`, `.piece.wk` and black counterparts
    - Theme-only rule strictly maintained: no board reading, no move assistance.
+   Live API 35 emulator inspection on 2026-08-20 found that the current
+   `wc-chess-board.board` paints its squares with a host `background-image`
+   (`assets-themes.chess.com`) rather than child `.light`/`.dark` nodes. The
+   overlay therefore replaces that image with a CSS-only 8x8 `conic-gradient`
+   on the host while retaining the older square selectors as compatibility
+   fallbacks. No position, piece, move, clock, account, or game data is returned
+   to the app.
 
 ## 2026-08-16 — M8 Orange Cat Theme & Feature Completion
 
