@@ -90,11 +90,15 @@ export class TrainingOrchestrator {
   async startQueuedSession(gameId) {
     const descriptor = this.queue.find((item) => item.id === gameId);
     if (!descriptor) throw new Error(`Queued session not found: ${gameId}`);
+    const motifFen = descriptor.start_fen || (descriptor.puzzle ? getMotifReadyFen(descriptor.puzzle) : null);
+    const turnToken = motifFen ? motifFen.split(' ')[1] : 'w';
+    const playerColor = turnToken === 'b' ? 'black' : 'white';
     const session = new PracticeSession({
       puzzle: {
         ...descriptor.puzzle,
         weaknessCategory: descriptor.weaknessCategory,
       },
+      playerColor,
       engine: this.engineFactory(descriptor),
       skillLevel: this.skillLevel,
       gameId,

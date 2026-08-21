@@ -5564,11 +5564,15 @@ var TrainingOrchestrator = class {
   async startQueuedSession(gameId) {
     const descriptor = this.queue.find((item) => item.id === gameId);
     if (!descriptor) throw new Error(`Queued session not found: ${gameId}`);
+    const motifFen = descriptor.start_fen || (descriptor.puzzle ? getMotifReadyFen(descriptor.puzzle) : null);
+    const turnToken = motifFen ? motifFen.split(" ")[1] : "w";
+    const playerColor = turnToken === "b" ? "black" : "white";
     const session = new PracticeSession({
       puzzle: {
         ...descriptor.puzzle,
         weaknessCategory: descriptor.weaknessCategory
       },
+      playerColor,
       engine: this.engineFactory(descriptor),
       skillLevel: this.skillLevel,
       gameId,
@@ -8739,7 +8743,7 @@ function renderProfile({ container, stats, settings: settings2, corpusStatus: co
 }
 
 // www/chesscom-theme.css
-var chesscom_theme_default = '/**\r\n * Chess.com Mobile Visual Theme Overlay \u2014 Orange Tabby Theme Pack\r\n * THEME-ONLY: Visual styling only. No board reading, no assistance during live play.\r\n */\r\n\r\n:root {\r\n  --chess-analyst-accent: #E67E22;\r\n  --chess-analyst-accent-dark: #D35400;\r\n  --chess-analyst-board-light: #F7EFE2;\r\n  --chess-analyst-board-dark: #C8854E;\r\n  --chess-analyst-board-frame: #7A4526;\r\n  --chess-analyst-highlight: rgba(230, 126, 34, 0.45);\r\n}\r\n\r\n/* Page Background */\r\nbody, #board-layout-main, .board-layout-main {\r\n  background-color: #FAF6F0 !important;\r\n}\r\n\r\n/* Web Component Board and Squares */\r\nwc-chess-board, chess-board, .board {\n  background-image: conic-gradient(\n    var(--chess-analyst-board-dark) 25%,\n    var(--chess-analyst-board-light) 0 50%,\n    var(--chess-analyst-board-dark) 0 75%,\n    var(--chess-analyst-board-light) 0\n  ) !important;\n  background-size: 25% 25% !important;\n  background-repeat: repeat !important;\n  border-radius: 10px !important;\n  box-shadow: 0 4px 16px rgba(110, 61, 48, 0.18) !important;\r\n  border: 2px solid var(--chess-analyst-board-frame) !important;\r\n}\r\n\r\nwc-chess-board .light, chess-board .light, .board .light,\r\n.square-light, [class*="square-"][class*="light"] {\r\n  background-color: var(--chess-analyst-board-light) !important;\r\n}\r\n\r\nwc-chess-board .dark, chess-board .dark, .board .dark,\r\n.square-dark, [class*="square-"][class*="dark"] {\r\n  background-color: var(--chess-analyst-board-dark) !important;\r\n}\r\n\r\n/* Move Highlights */\r\n.highlight, [class*="highlight"], .selected-square {\r\n  background-color: var(--chess-analyst-highlight) !important;\r\n}\r\n\r\n/* Buttons & UI Accents */\r\nbutton, [role="button"], .ui_v5-button-component {\r\n  border-radius: 10px !important;\r\n}\r\n\r\n.ui_v5-button-primary {\r\n  background-color: var(--chess-analyst-accent) !important;\r\n  border-color: var(--chess-analyst-accent-dark) !important;\r\n}\r\n';
+var chesscom_theme_default = '/**\r\n * Chess.com Mobile Visual Theme Overlay \u2014 Orange Tabby Theme Pack\r\n * THEME-ONLY: Visual styling only. No board reading, no assistance during live play.\r\n */\r\n\r\n:root {\r\n  --chess-analyst-accent: #E67E22;\r\n  --chess-analyst-accent-dark: #D35400;\r\n  --chess-analyst-board-light: #F7EFE2;\r\n  --chess-analyst-board-dark: #C8854E;\r\n  --chess-analyst-board-frame: #7A4526;\r\n  --chess-analyst-highlight: rgba(230, 126, 34, 0.45);\r\n}\r\n\r\n/* Page Background */\r\nbody, #board-layout-main, .board-layout-main {\r\n  background-color: #FAF6F0 !important;\r\n}\r\n\r\n/* Web Component Board and Squares */\r\nwc-chess-board, chess-board, .board {\r\n  background-image: conic-gradient(\r\n    var(--chess-analyst-board-dark) 25%,\r\n    var(--chess-analyst-board-light) 0 50%,\r\n    var(--chess-analyst-board-dark) 0 75%,\r\n    var(--chess-analyst-board-light) 0\r\n  ) !important;\r\n  background-size: 25% 25% !important;\r\n  background-repeat: repeat !important;\r\n  border-radius: 10px !important;\r\n  box-shadow: 0 4px 16px rgba(110, 61, 48, 0.18) !important;\r\n  border: 2px solid var(--chess-analyst-board-frame) !important;\r\n}\r\n\r\nwc-chess-board .light, chess-board .light, .board .light,\r\n.square-light, [class*="square-"][class*="light"] {\r\n  background-color: var(--chess-analyst-board-light) !important;\r\n}\r\n\r\nwc-chess-board .dark, chess-board .dark, .board .dark,\r\n.square-dark, [class*="square-"][class*="dark"] {\r\n  background-color: var(--chess-analyst-board-dark) !important;\r\n}\r\n\r\n/* Move Highlights */\r\n.highlight, [class*="highlight"], .selected-square {\r\n  background-color: var(--chess-analyst-highlight) !important;\r\n}\r\n\r\n/* Buttons & UI Accents */\r\nbutton, [role="button"], .ui_v5-button-component {\r\n  border-radius: 10px !important;\r\n}\r\n\r\n.ui_v5-button-primary {\r\n  background-color: var(--chess-analyst-accent) !important;\r\n  border-color: var(--chess-analyst-accent-dark) !important;\r\n}\r\n';
 
 // www/chesscomView.js
 var CHESSCOM_URL = "https://www.chess.com/play/online";
@@ -8944,7 +8948,7 @@ function startClockTimer() {
   userClockEl?.classList.remove("hidden");
   clockIntervalHandle = setInterval(() => {
     if (!sessionClock) return;
-    const time = sessionClock.getTimeRemaining();
+    const time = { whiteMs: sessionClock.getTime("white"), blackMs: sessionClock.getTime("black") };
     const isPlayerWhite = (activeSession?.playerColor ?? "white") === "white";
     const playerTime = isPlayerWhite ? time.whiteMs : time.blackMs;
     const oppTime = isPlayerWhite ? time.blackMs : time.whiteMs;
@@ -8956,10 +8960,10 @@ function startClockTimer() {
       opponentClockEl.textContent = formatClockTime(oppTime);
       opponentClockEl.classList.toggle("low-time", oppTime <= 3e4 && oppTime > 0);
     }
-    if (sessionClock.isFlagFallen()) {
+    const flagFallen = sessionClock.isFlagFallen("white") ? "white" : sessionClock.isFlagFallen("black") ? "black" : null;
+    if (flagFallen) {
       stopClockTimer();
-      const flag = sessionClock.isFlagFallen();
-      const playerWon = isPlayerWhite && flag === "black" || !isPlayerWhite && flag === "white";
+      const playerWon = isPlayerWhite && flagFallen === "black" || !isPlayerWhite && flagFallen === "white";
       setMoveStatus(playerWon ? "Opponent ran out of time! You win! \u{1F3C6}" : "Time ran out! Game over. \u23F1\uFE0F");
       if (activeSession) {
         activeSession.result = playerWon ? isPlayerWhite ? "1-0" : "0-1" : isPlayerWhite ? "0-1" : "1-0";
@@ -9325,7 +9329,7 @@ function syncSessionToBoard(session) {
   boardFlipped = (session?.playerColor ?? "white") === "black";
   selectedSquare = null;
   if (session?.timeControl && session.timeControl !== "none") {
-    sessionClock = new ChessClock(session.timeControl);
+    sessionClock = new ChessClock({ timeControl: session.timeControl });
     startClockTimer();
   } else {
     sessionClock = null;

@@ -17,6 +17,7 @@ import { DatabaseSync } from 'node:sqlite';
 
 import { TrainingOrchestrator } from '../core/orchestrator.js';
 import { PracticeSession } from '../engine/practiceSession.js';
+import { ChessClock, formatClockTime } from '../engine/clock.js';
 import * as dbStorage from '../storage/db.js';
 import { initDb } from '../storage/db.js';
 import { initPuzzleDb, SqlitePuzzleLibrary } from '../data/puzzleDb.js';
@@ -269,4 +270,99 @@ test('app wiring: profile page renders M10 streaks, mastery, and export/import b
   assert.ok(container.querySelector('#btn-db-export'));
   assert.ok(container.querySelector('#btn-db-import'));
 });
+
+test('app wiring: timed Free Play session advances clock and updates display without error', async () => {
+  const dom = new JSDOM(HTML, { url: 'https://localhost/' });
+  const doc = dom.window.document;
+  const userClockEl = doc.getElementById('user-clock');
+  const opponentClockEl = doc.getElementById('opponent-clock');
+
+  const session = new PracticeSession({
+    mode: 'freeplay',
+    persona: 'tabby',
+    timeControl: '3|2',
+    playerColor: 'white',
+  });
+
+  let currentTime = 1000000;
+  const sessionClock = new ChessClock({
+    timeControl: session.timeControl,
+    now: () => currentTime,
+  });
+  sessionClock.start();
+
+  // Test the clock display update tick (using real clock API)
+  assert.doesNotThrow(() => {
+    const time = { whiteMs: sessionClock.getTime('white'), blackMs: sessionClock.getTime('black') };
+    const isPlayerWhite = (session.playerColor ?? 'white') === 'white';
+    const playerTime = isPlayerWhite ? time.whiteMs : time.blackMs;
+    const oppTime = isPlayerWhite ? time.blackMs : time.whiteMs;
+
+    userClockEl.textContent = formatClockTime(playerTime);
+    opponentClockEl.textContent = formatClockTime(oppTime);
+  }, 'clock tick must not throw (sessionClock.getTimeRemaining regression guard)');
+
+  const initialUserTime = userClockEl.textContent;
+  assert.equal(initialUserTime, '03:00');
+
+  // Advance time by 1000ms past a clock tick
+  currentTime += 1000;
+
+  const timeAfter = { whiteMs: sessionClock.getTime('white'), blackMs: sessionClock.getTime('black') };
+  const isPlayerWhite = (session.playerColor ?? 'white') === 'white';
+  const playerTimeAfter = isPlayerWhite ? timeAfter.whiteMs : timeAfter.blackMs;
+  userClockEl.textContent = formatClockTime(playerTimeAfter);
+
+  assert.notEqual(userClockEl.textContent, initialUserTime, 'display time must decrement after clock tick');
+  assert.equal(userClockEl.textContent, '02:59');
+  sessionClock.pause();
+});
+
+test('app wiring: seeded puzzle with Black to move derives playerColor and allows immediate legal move', async () => {
+  const dom = new JSDOM(HTML, { url: 'https://localhost/' });
+  global.document = dom.window.document;
+  global.window = dom.window;
+
+  const db = initDb(':memory:');
+  const puzzleDb = initPuzzleDb(':memory:');
+
+  // Starting FEN has White to move ('w'). Moves[0] is 'e2e4' (White moves first).
+  // Motif-ready FEN after Moves[0] has Black to move ('b').
+  const insertPuzzle = puzzleDb.prepare('INSERT INTO puzzles (puzzle_id, fen, moves, rating, step_count) VALUES (?, ?, ?, ?, ?)');
+  const insertTheme = puzzleDb.prepare('INSERT INTO puzzle_themes (theme, puzzle_id) VALUES (?, ?)');
+  const START_FEN_WHITE = 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1';
+  insertPuzzle.run('black_move_short', START_FEN_WHITE, 'e2e4 e7e5 g1f3 b8c6', 1200, 4);
+  insertPuzzle.run('black_move_long', START_FEN_WHITE, 'e2e4 e7e5 g1f3 b8c6 d2d4 e5d4', 1300, 6);
+  insertTheme.run('fork', 'black_move_short');
+  insertTheme.run('fork', 'black_move_long');
+
+  const engine = stubEngine();
+  const orchestrator = new TrainingOrchestrator({
+    db,
+    storage: dbStorage,
+    puzzleLibrary: new SqlitePuzzleLibrary(puzzleDb),
+    engineFactory: () => engine,
+    idFactory: (() => { let i = 0; return () => `black-seed-${++i}`; })(),
+  });
+
+  const focus = await orchestrator.startTargetedSession(['tactical']);
+  assert.ok(focus.activeSession instanceof PracticeSession);
+
+  // Assert playerColor is correctly derived as 'black' from the motif-ready FEN
+  assert.equal(focus.activeSession.playerColor, 'black', 'playerColor must be black when motif-ready FEN has Black to move');
+
+  // Verify that Black to move matches the position
+  const currentFenTurn = focus.activeSession.currentFen.split(' ')[1];
+  assert.equal(currentFenTurn, 'b', 'current FEN must have Black to move');
+
+  // Player can immediately play the legal move 'e7e5'
+  const turnResult = await focus.activeSession.playTurn('e7e5');
+  assert.ok(turnResult.playerLog, 'player log must be created for legal Black move');
+  assert.equal(turnResult.playerLog.move_played, 'e7e5');
+  assert.ok(turnResult.engineLog, 'engine should immediately reply to player move');
+
+  db.close();
+  puzzleDb.close();
+});
+
 

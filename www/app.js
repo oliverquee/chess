@@ -178,7 +178,7 @@ function startClockTimer() {
 
   clockIntervalHandle = setInterval(() => {
     if (!sessionClock) return;
-    const time = sessionClock.getTimeRemaining();
+    const time = { whiteMs: sessionClock.getTime('white'), blackMs: sessionClock.getTime('black') };
     const isPlayerWhite = (activeSession?.playerColor ?? 'white') === 'white';
 
     const playerTime = isPlayerWhite ? time.whiteMs : time.blackMs;
@@ -193,10 +193,10 @@ function startClockTimer() {
       opponentClockEl.classList.toggle('low-time', oppTime <= 30000 && oppTime > 0);
     }
 
-    if (sessionClock.isFlagFallen()) {
+    const flagFallen = sessionClock.isFlagFallen('white') ? 'white' : (sessionClock.isFlagFallen('black') ? 'black' : null);
+    if (flagFallen) {
       stopClockTimer();
-      const flag = sessionClock.isFlagFallen();
-      const playerWon = (isPlayerWhite && flag === 'black') || (!isPlayerWhite && flag === 'white');
+      const playerWon = (isPlayerWhite && flagFallen === 'black') || (!isPlayerWhite && flagFallen === 'white');
       setMoveStatus(playerWon ? 'Opponent ran out of time! You win! 🏆' : 'Time ran out! Game over. ⏱️');
       if (activeSession) {
         activeSession.result = playerWon ? (isPlayerWhite ? '1-0' : '0-1') : (isPlayerWhite ? '0-1' : '1-0');
@@ -628,7 +628,7 @@ function syncSessionToBoard(session) {
   selectedSquare = null;
 
   if (session?.timeControl && session.timeControl !== 'none') {
-    sessionClock = new ChessClock(session.timeControl);
+    sessionClock = new ChessClock({ timeControl: session.timeControl });
     startClockTimer();
   } else {
     sessionClock = null;
