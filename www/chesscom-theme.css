@@ -1,0 +1,58 @@
+/**
+ * Chess.com Mobile Visual Theme Overlay — Orange Tabby Theme Pack
+ * THEME-ONLY: Visual styling only. No board reading, no assistance during live play.
+ */
+
+:root {
+  --chess-analyst-accent: #E67E22;
+  --chess-analyst-accent-dark: #D35400;
+  --chess-analyst-board-light: #F7EFE2;
+  --chess-analyst-board-dark: #C8854E;
+  --chess-analyst-board-frame: #7A4526;
+  --chess-analyst-highlight: rgba(230, 126, 34, 0.45);
+}
+
+/* Page Background */
+body, #board-layout-main, .board-layout-main {
+  background-color: #FAF6F0 !important;
+}
+
+/* Web Component Board and Squares */
+wc-chess-board, chess-board, .board {
+  background-image: conic-gradient(
+    var(--chess-analyst-board-dark) 25%,
+    var(--chess-analyst-board-light) 0 50%,
+    var(--chess-analyst-board-dark) 0 75%,
+    var(--chess-analyst-board-light) 0
+  ) !important;
+  background-size: 25% 25% !important;
+  background-repeat: repeat !important;
+  border-radius: 10px !important;
+  box-shadow: 0 4px 16px rgba(110, 61, 48, 0.18) !important;
+  border: 2px solid var(--chess-analyst-board-frame) !important;
+}
+
+wc-chess-board .light, chess-board .light, .board .light,
+.square-light, [class*="square-"][class*="light"] {
+  background-color: var(--chess-analyst-board-light) !important;
+}
+
+wc-chess-board .dark, chess-board .dark, .board .dark,
+.square-dark, [class*="square-"][class*="dark"] {
+  background-color: var(--chess-analyst-board-dark) !important;
+}
+
+/* Move Highlights */
+.highlight, [class*="highlight"], .selected-square {
+  background-color: var(--chess-analyst-highlight) !important;
+}
+
+/* Buttons & UI Accents */
+button, [role="button"], .ui_v5-button-component {
+  border-radius: 10px !important;
+}
+
+.ui_v5-button-primary {
+  background-color: var(--chess-analyst-accent) !important;
+  border-color: var(--chess-analyst-accent-dark) !important;
+}

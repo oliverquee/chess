@@ -1,0 +1,10 @@
+{
+  "appId": "com.chessanalyst.app",
+  "appName": "Chess Analyst",
+  "webDir": "www",
+  "plugins": {
+    "CapacitorHttp": {
+      "enabled": true
+    }
+  }
+}

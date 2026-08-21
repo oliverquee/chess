@@ -1,12 +1,5 @@
 import { getPuzzlesForWeakness } from '../data/themeMapping.js';
 import { getMotifReadyFen, PracticeSession } from '../engine/practiceSession.js';
-import {
-  completeGameSession,
-  createQueuedGames,
-  getGameStatus,
-  getWeaknessTally,
-  transitionGameStatus,
-} from '../storage/db.js';
 import { selectSeedableTarget } from './targeting.js';
 
 function defaultIdFactory({ puzzle, index }) {
@@ -17,33 +10,59 @@ function defaultIdFactory({ puzzle, index }) {
 export class TrainingOrchestrator {
   constructor({
     db,
+    storage,
     puzzleLibrary,
     engineFactory,
+    skillLevel = 10,
     idFactory = defaultIdFactory,
     now = () => new Date().toISOString(),
   }) {
-    if (!db?.prepare) throw new TypeError('db must be a SQLite handle.');
+    if (!db) throw new TypeError('db must be provided.');
+    if (!storage || typeof storage !== 'object') {
+      throw new TypeError(
+        'storage adapter must be provided explicitly (e.g. `import * as storage from "../storage/db.js"` on desktop, '
+        + 'or `../storage/mobileDb.js` on Capacitor). It is no longer imported by default so this module stays browser-safe.'
+      );
+    }
     if (!puzzleLibrary?.filter) throw new TypeError('puzzleLibrary must provide filter(query).');
     if (typeof engineFactory !== 'function') throw new TypeError('engineFactory must be a function.');
+    if (!Number.isInteger(skillLevel) || skillLevel < 0 || skillLevel > 20) {
+      throw new RangeError('skillLevel must be an integer from 0 to 20.');
+    }
     this.db = db;
+    this.storage = storage;
     this.puzzleLibrary = puzzleLibrary;
     this.engineFactory = engineFactory;
+    this.skillLevel = skillLevel;
     this.idFactory = idFactory;
     this.now = now;
     this.queue = [];
     this.sessions = new Map();
   }
 
-  getNextFocus(rankedWeaknesses = getWeaknessTally(this.db)) {
-    return selectSeedableTarget(rankedWeaknesses, {
+  setSkillLevel(skillLevel) {
+    if (!Number.isInteger(skillLevel) || skillLevel < 0 || skillLevel > 20) {
+      throw new RangeError('skillLevel must be an integer from 0 to 20.');
+    }
+    this.skillLevel = skillLevel;
+  }
+
+  async getNextFocus(rankedWeaknesses) {
+    const weaknesses = rankedWeaknesses ?? (await this.storage.getWeaknessTally(this.db));
+    return selectSeedableTarget(weaknesses, {
       getPuzzles: (category, bucket) => getPuzzlesForWeakness(category, bucket, {
         library: this.puzzleLibrary,
       }),
     });
   }
 
-  startTargetedSession(rankedWeaknesses = getWeaknessTally(this.db)) {
-    const focus = this.getNextFocus(rankedWeaknesses);
+  async startTargetedSession(rankedWeaknesses) {
+    const weaknesses = rankedWeaknesses ?? (await this.storage.getWeaknessTally(this.db));
+    const unresolvedFocus = await this.getNextFocus(weaknesses);
+    const focus = {
+      ...unresolvedFocus,
+      puzzles: await Promise.all(unresolvedFocus.puzzles ?? []),
+    };
     if (!focus.weaknessCategory) return { ...focus, activeSession: null, queued: [] };
     if (focus.puzzles.length !== 2) {
       throw new Error(`Start-slow targeting must return exactly two puzzles; received ${focus.puzzles.length}.`);
@@ -61,14 +80,14 @@ export class TrainingOrchestrator {
         start_fen: getMotifReadyFen(puzzle),
       };
     });
-    createQueuedGames(this.db, queued);
+    await this.storage.createQueuedGames(this.db, queued);
     this.queue.push(...queued);
 
-    const activeSession = this.startQueuedSession(queued[0].id);
+    const activeSession = await this.startQueuedSession(queued[0].id);
     return { ...focus, activeSession, queued };
   }
 
-  startQueuedSession(gameId) {
+  async startQueuedSession(gameId) {
     const descriptor = this.queue.find((item) => item.id === gameId);
     if (!descriptor) throw new Error(`Queued session not found: ${gameId}`);
     const session = new PracticeSession({
@@ -77,29 +96,35 @@ export class TrainingOrchestrator {
         weaknessCategory: descriptor.weaknessCategory,
       },
       engine: this.engineFactory(descriptor),
+      skillLevel: this.skillLevel,
       gameId,
       now: this.now,
     });
-    transitionGameStatus(this.db, gameId, 'in_progress');
+    await this.storage.transitionGameStatus(this.db, gameId, 'in_progress');
     this.sessions.set(gameId, session);
     return session;
   }
 
-  startNextQueuedSession() {
-    const descriptor = this.queue.find((item) => getGameStatus(this.db, item.id) === 'queued');
-    return descriptor ? this.startQueuedSession(descriptor.id) : null;
+  async startNextQueuedSession() {
+    for (const item of this.queue) {
+      const status = await this.storage.getGameStatus(this.db, item.id);
+      if (status === 'queued') {
+        return await this.startQueuedSession(item.id);
+      }
+    }
+    return null;
   }
 
-  completeSession(sessionOrSummary) {
+  async completeSession(sessionOrSummary) {
     const summary = typeof sessionOrSummary?.summary === 'function'
       ? sessionOrSummary.summary()
       : sessionOrSummary;
-    completeGameSession(this.db, summary);
+    await this.storage.completeGameSession(this.db, summary);
     this.sessions.delete(summary.id);
     return summary.id;
   }
 
-  markAnalyzed(gameId) {
-    return transitionGameStatus(this.db, gameId, 'analyzed');
+  async markAnalyzed(gameId) {
+    return await this.storage.transitionGameStatus(this.db, gameId, 'analyzed');
   }
 }

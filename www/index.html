@@ -1,0 +1,161 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+  <title>Cat Analyst 🐱 — Orange Tabby Practice Board</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Nunito:wght@400;600;700;800;900&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="index.css">
+  <script type="importmap">
+  {
+    "imports": {
+      "chess.js": "./vendor/chess.js"
+    }
+  }
+  </script>
+</head>
+<body>
+  <div id="app" class="app-container">
+    <!-- Header -->
+    <header class="app-header">
+      <div class="header-content">
+        <div class="brand">
+          <div class="brand-avatar">🐱</div>
+          <div class="brand-text">
+            <h1>Cat Analyst</h1>
+            <span class="brand-sub">Orange Tabby Edition 🐾</span>
+          </div>
+        </div>
+        <div class="session-badge" id="session-badge">Practice Mode 🐟</div>
+      </div>
+    </header>
+
+    <!-- Main Content Area -->
+    <main id="practice-page" class="main-content app-page active-page">
+      <!-- Target/Weakness Card -->
+      <section class="target-card" id="target-card">
+        <div class="target-card-header">
+          <span class="paw-icon">🐾</span>
+          <span class="target-label">Current Hunt (Focus):</span>
+        </div>
+        <div class="target-card-body">
+          <div class="target-name-wrap">
+            <h2 class="target-name" id="target-name">Tactical Motifs</h2>
+            <span class="target-desc" id="target-desc">Start-slow: 2 seed puzzles queued</span>
+          </div>
+          <div class="target-queue-indicator" id="target-queue-indicator">Seed 1 of 2 🐟</div>
+        </div>
+      </section>
+
+      <!-- Board Section -->
+      <section class="board-section">
+        <!-- Opponent Bar -->
+        <div class="player-bar opponent-bar">
+          <div class="player-profile">
+            <span class="player-avatar">🐈‍⬛</span>
+            <div class="player-meta">
+              <span class="player-name">Tabby Stockfish 18 Lite</span>
+              <span class="player-rating" id="engine-skill-display">Engine Skill: 10</span>
+            </div>
+          </div>
+          <div class="eval-badge" id="engine-eval">Eval: +0.00</div>
+        </div>
+
+        <!-- Chessboard Container -->
+        <div class="board-wrapper">
+          <div id="chessboard" class="chessboard" aria-label="Chess Board"></div>
+        </div>
+
+        <!-- User Bar -->
+        <div class="player-bar user-bar">
+          <div class="player-profile">
+            <span class="player-avatar">🐾</span>
+            <div class="player-meta">
+              <span class="player-name">You (Tactical Hunter)</span>
+              <span class="turn-status-text" id="move-status">Your turn to pounce! (Black)</span>
+            </div>
+          </div>
+          <div class="turn-indicator" id="turn-indicator">
+            <span class="turn-dot active"></span>
+          </div>
+        </div>
+      </section>
+
+      <!-- Analysis & Future Moves Preview Section -->
+      <section class="analysis-panel">
+        <div class="panel-tabs">
+          <button class="tab-btn active" id="tab-moves">🐾 Move History</button>
+          <button class="tab-btn" id="tab-preview">🔮 Future Moves Preview</button>
+        </div>
+
+        <div class="tab-content" id="tab-content-moves">
+          <div class="move-log-container" id="move-log">
+            <div class="empty-log-message">Motif-ready position loaded. Make your first move! 🐾</div>
+          </div>
+        </div>
+
+        <div class="tab-content hidden" id="tab-content-preview">
+          <div class="pv-container" id="pv-container">
+            <div class="pv-label">Stockfish Principal Variation (Engine Best Line):</div>
+            <div class="pv-moves" id="pv-moves">—</div>
+            <p class="preview-note">🔒 Preview is enabled exclusively during local practice vs Stockfish.</p>
+          </div>
+        </div>
+      </section>
+
+      <!-- Action Controls -->
+      <section class="controls-section">
+        <button id="btn-start-target" class="btn btn-primary" title="Start a 2-seed targeted weakness training cycle">
+          <span class="btn-icon">🐾</span>
+          <span class="btn-text">Pounce on Weakness (Start-Slow)</span>
+        </button>
+        <button id="btn-next-queued" class="btn btn-secondary" title="Load the second queued seed puzzle">
+          <span class="btn-icon">🐟</span>
+          <span class="btn-text">Next Fish Seed (2/2)</span>
+        </button>
+        <div class="secondary-actions">
+          <button id="btn-flip" class="btn btn-icon-only" title="Rotate Board 180°">🔄</button>
+          <button id="btn-complete" class="btn btn-danger" title="Finish and log session for post-game analysis">
+            <span>🏁 End Session</span>
+          </button>
+        </div>
+      </section>
+    </main>
+
+    <main id="profile-page" class="main-content app-page hidden" aria-live="polite">
+      <p class="empty-state">Loading your profile…</p>
+    </main>
+
+    <section id="corpus-first-run" class="first-run-overlay hidden" role="dialog" aria-modal="true" aria-labelledby="corpus-title">
+      <div class="first-run-card">
+        <div class="first-run-cat">🐱</div>
+        <h2 id="corpus-title">Stock the puzzle pond</h2>
+        <p>Cat Analyst needs a one-time puzzle download before your first hunt. It is under 5 MB and will be stored on this device.</p>
+        <p class="data-note">The download starts only when you tap the button, so you can wait for Wi-Fi.</p>
+        <progress id="corpus-progress" max="100" value="0" class="hidden"></progress>
+        <p id="corpus-progress-label" aria-live="polite">Ready when you are.</p>
+        <button id="btn-download-corpus" class="btn btn-primary" type="button">Download puzzle pack</button>
+      </div>
+    </section>
+
+    <!-- Bottom Status Bar -->
+    <footer class="app-footer">
+      <div class="status-indicator">
+        <span class="status-dot live"></span>
+        <span id="system-status">Purr-fect • Orange Cat Theme Active</span>
+      </div>
+      <div class="version-tag">M9 Capacitor</div>
+    </footer>
+
+    <nav class="bottom-nav" aria-label="Primary">
+      <button id="nav-practice" class="nav-tab active" type="button" aria-controls="practice-page">♟️<span>Practice</span></button>
+      <button id="nav-profile" class="nav-tab" type="button" aria-controls="profile-page">🐾<span>Profile</span></button>
+      <button id="nav-chesscom" class="nav-tab" type="button">♞<span>Chess.com</span></button>
+    </nav>
+  </div>
+
+  <script type="module" src="bundle.js"></script>
+</body>
+</html>

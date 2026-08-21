@@ -5,12 +5,28 @@
   "type": "module",
   "scripts": {
     "test": "node --test",
-    "import:puzzles": "node scripts/importPuzzles.js"
+    "import:puzzles": "node scripts/importPuzzles.js",
+    "build:corpus": "node scripts/buildPuzzleSubset.js",
+    "verify:corpus": "node scripts/verifyCorpusArtifact.js",
+    "build:web": "node scripts/buildWeb.js",
+    "build:web:preview": "node scripts/buildBrowserPreview.js",
+    "cap:sync": "npm run build:web && npx cap sync"
   },
   "dependencies": {
+    "@capacitor-community/sqlite": "^8.1.1",
+    "@capacitor/android": "^8.5.0",
+    "@capacitor/core": "^8.5.0",
+    "@capacitor/ios": "^8.5.0",
+    "@capgo/capacitor-inappbrowser": "^8.14.0",
     "chess.js": "1.4.0"
   },
   "engines": {
     "node": ">=22.13.0"
+  },
+  "devDependencies": {
+    "@capacitor/cli": "^8.5.0",
+    "esbuild": "^0.25.12",
+    "fzstd": "^0.1.1",
+    "jsdom": "^26.1.0"
   }
 }
