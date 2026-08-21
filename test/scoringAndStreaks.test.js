@@ -140,3 +140,35 @@ test('advanceCategoryMastery and checkMasteryDecay handle level progression and 
   assert.equal(checked.king_safety.masteryLevel, 4);
 });
 
+test('time per move has no effect on seed score (regression guard)', () => {
+  const fastSession = {
+    player_color: 'white',
+    result: '1-0',
+    hint_count: 1,
+    moves: [
+      { ply_number: 1, eval_cp_before: 0, eval_cp_after: -50, time_to_move_ms: 2000 },
+      { ply_number: 2, eval_cp_before: 50, eval_cp_after: -40, time_to_move_ms: 1500 },
+      { ply_number: 3, eval_cp_before: 40, eval_cp_after: -120, time_to_move_ms: 2200 },
+    ],
+  };
+
+  const slowSession = {
+    player_color: 'white',
+    result: '1-0',
+    hint_count: 1,
+    moves: [
+      { ply_number: 1, eval_cp_before: 0, eval_cp_after: -50, time_to_move_ms: 60000 },
+      { ply_number: 2, eval_cp_before: 50, eval_cp_after: -40, time_to_move_ms: 45000 },
+      { ply_number: 3, eval_cp_before: 40, eval_cp_after: -120, time_to_move_ms: 75000 },
+    ],
+  };
+
+  const fastScore = calculateSeedScore(fastSession);
+  const slowScore = calculateSeedScore(slowSession);
+
+  assert.equal(fastScore.totalScore, slowScore.totalScore);
+  assert.equal(fastScore.accuracyComponent, slowScore.accuracyComponent);
+  assert.equal(fastScore.motifComponent, slowScore.motifComponent);
+});
+
+
