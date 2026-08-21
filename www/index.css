@@ -767,6 +767,214 @@ body {
 .corpus-status, .danger-zone { margin-top: 18px; padding-top: 12px; border-top: 1px solid var(--cat-border-color); }
 .corpus-status p, .danger-zone p { color: var(--cat-ink-muted); font-size: 0.76rem; margin-bottom: 8px; }
 
+/* M10 Eval Bar & Clocks */
+.board-container-flex {
+  display: flex;
+  gap: 8px;
+  align-items: stretch;
+  width: 100%;
+}
+
+.eval-bar-wrapper {
+  width: 14px;
+  background: #382417; /* Black side */
+  border-radius: var(--radius-xs);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column-reverse; /* White fills from bottom */
+  border: 1.5px solid var(--board-frame);
+  box-shadow: var(--shadow-sm);
+  position: relative;
+}
+
+.eval-bar-fill {
+  width: 100%;
+  background: #FFFDF9; /* White side */
+  transition: height 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.clock-badge {
+  font-family: monospace;
+  font-size: 0.95rem;
+  font-weight: 800;
+  padding: 4px 10px;
+  border-radius: var(--radius-xs);
+  background: var(--cat-ink-primary);
+  color: #FFFDF9;
+  border: 1px solid var(--cat-border-color);
+  font-variant-numeric: tabular-nums;
+}
+
+.clock-badge.low-time {
+  background: var(--cat-danger);
+  color: #FFFFFF;
+  animation: pawPulse 1s infinite;
+}
+
+/* M10 In-Game Action Bar */
+.game-actions-bar {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 6px;
+  margin-top: 4px;
+}
+
+.btn-action {
+  font-size: 0.76rem;
+  padding: 6px 4px;
+  font-weight: 800;
+  border-radius: var(--radius-sm);
+  background: var(--cat-card-elevated);
+  border: 1.5px solid var(--cat-border-color);
+  color: var(--cat-ink-primary);
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+}
+
+.btn-action:hover {
+  background: var(--cat-ginger-light);
+  border-color: var(--cat-ginger);
+}
+
+/* Modals & Overlays */
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: grid;
+  place-items: center;
+  padding: 20px;
+  background: rgba(44, 36, 30, 0.65);
+  backdrop-filter: blur(4px);
+}
+
+.modal-card {
+  width: min(100%, 380px);
+  background: var(--cat-card-bg);
+  border: 2px solid var(--cat-ginger);
+  border-radius: var(--radius-md);
+  padding: 20px;
+  box-shadow: var(--shadow-lg);
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  text-align: center;
+}
+
+.modal-card h3 {
+  color: var(--cat-ginger-dark);
+  font-size: 1.15rem;
+}
+
+.hint-tier-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  text-align: left;
+}
+
+.hint-tier-item {
+  padding: 10px;
+  border-radius: var(--radius-sm);
+  background: var(--cat-interactive-bg);
+  border: 1.5px solid var(--cat-border-color);
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.hint-tier-item.active {
+  border-color: var(--cat-ginger);
+  background: var(--cat-ginger-light);
+}
+
+.hint-tier-header {
+  font-size: 0.82rem;
+  font-weight: 800;
+  color: var(--cat-ginger-dark);
+}
+
+.score-breakdown-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 8px;
+  text-align: left;
+  background: var(--cat-interactive-bg);
+  padding: 12px;
+  border-radius: var(--radius-sm);
+}
+
+.score-total-wrap {
+  text-align: center;
+  padding: 12px;
+  background: var(--cat-ginger-light);
+  border-radius: var(--radius-sm);
+  border: 1.5px solid var(--cat-ginger);
+}
+
+.score-grade-badge {
+  font-size: 2.2rem;
+  font-weight: 900;
+  color: var(--cat-ginger-dark);
+}
+
+.streak-metrics {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.streak-metrics .metric-item {
+  background: var(--cat-interactive-bg);
+  padding: 10px;
+  border-radius: var(--radius-sm);
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+}
+
+.streak-metrics .metric-item strong {
+  font-size: 1.25rem;
+  color: var(--cat-ginger-dark);
+}
+
+.streak-metrics .metric-item span {
+  font-size: 0.7rem;
+  color: var(--cat-ink-muted);
+  font-weight: 700;
+}
+
+.mastery-grid {
+  display: grid;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.mastery-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 6px 10px;
+  background: var(--cat-interactive-bg);
+  border-radius: var(--radius-xs);
+  font-size: 0.78rem;
+  font-weight: 700;
+}
+
+.mastery-paws {
+  letter-spacing: 2px;
+}
+
+.backup-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 6px;
+}
+
 @media (min-width: 700px) {
   .app-container { max-width: 760px; }
   #practice-page { width: 100%; max-width: 520px; margin-inline: auto; }

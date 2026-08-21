@@ -6,7 +6,7 @@
   <title>Cat Analyst 🐱 — Orange Tabby Practice Board</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Nunito:wght@400;600;700;800;900&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Nunito:wght@400;600;700;800;900&amp;display=swap" rel="stylesheet">
   <link rel="stylesheet" href="index.css">
   <script type="importmap">
   {
@@ -54,18 +54,26 @@
         <!-- Opponent Bar -->
         <div class="player-bar opponent-bar">
           <div class="player-profile">
-            <span class="player-avatar">🐈‍⬛</span>
+            <span class="player-avatar" id="opponent-avatar">🐈‍⬛</span>
             <div class="player-meta">
-              <span class="player-name">Tabby Stockfish 18 Lite</span>
+              <span class="player-name" id="opponent-name">Tabby Stockfish 18 Lite</span>
               <span class="player-rating" id="engine-skill-display">Engine Skill: 10</span>
             </div>
           </div>
-          <div class="eval-badge" id="engine-eval">Eval: +0.00</div>
+          <div class="bar-right-group" style="display:flex; align-items:center; gap:6px;">
+            <div class="eval-badge" id="engine-eval">Eval: +0.00</div>
+            <div class="clock-badge hidden" id="opponent-clock">03:00</div>
+          </div>
         </div>
 
-        <!-- Chessboard Container -->
-        <div class="board-wrapper">
-          <div id="chessboard" class="chessboard" aria-label="Chess Board"></div>
+        <!-- Chessboard Container + Eval Bar Flex -->
+        <div class="board-container-flex">
+          <div class="eval-bar-wrapper" id="eval-bar-wrapper" title="Winning Probability Eval Bar">
+            <div class="eval-bar-fill" id="eval-bar-fill" style="height: 50%;"></div>
+          </div>
+          <div class="board-wrapper">
+            <div id="chessboard" class="chessboard" aria-label="Chess Board"></div>
+          </div>
         </div>
 
         <!-- User Bar -->
@@ -77,9 +85,32 @@
               <span class="turn-status-text" id="move-status">Your turn to pounce! (Black)</span>
             </div>
           </div>
-          <div class="turn-indicator" id="turn-indicator">
-            <span class="turn-dot active"></span>
+          <div class="bar-right-group" style="display:flex; align-items:center; gap:6px;">
+            <div class="clock-badge hidden" id="user-clock">03:00</div>
+            <div class="turn-indicator" id="turn-indicator">
+              <span class="turn-dot active"></span>
+            </div>
           </div>
+        </div>
+
+        <!-- In-Game Action Bar -->
+        <div class="game-actions-bar">
+          <button id="btn-hint" class="btn-action" title="Request a 3-tier progressive hint">
+            <span>💡</span>
+            <span>Hint</span>
+          </button>
+          <button id="btn-takeback" class="btn-action" title="Revert last move pair">
+            <span>↩️</span>
+            <span>Takeback</span>
+          </button>
+          <button id="btn-draw" class="btn-action" title="Offer draw to engine">
+            <span>🤝</span>
+            <span>Draw</span>
+          </button>
+          <button id="btn-resign" class="btn-action" title="Resign current game">
+            <span>🏳️</span>
+            <span>Resign</span>
+          </button>
         </div>
       </section>
 
@@ -111,6 +142,10 @@
           <span class="btn-icon">🐾</span>
           <span class="btn-text">Pounce on Weakness (Start-Slow)</span>
         </button>
+        <button id="btn-freeplay" class="btn btn-secondary" title="Start an unseeded Free Play practice game">
+          <span class="btn-icon">⚔️</span>
+          <span class="btn-text">Free Play vs Persona</span>
+        </button>
         <button id="btn-next-queued" class="btn btn-secondary" title="Load the second queued seed puzzle">
           <span class="btn-icon">🐟</span>
           <span class="btn-text">Next Fish Seed (2/2)</span>
@@ -127,6 +162,57 @@
     <main id="profile-page" class="main-content app-page hidden" aria-live="polite">
       <p class="empty-state">Loading your profile…</p>
     </main>
+
+    <!-- M10 Hint Modal -->
+    <section id="hint-modal" class="modal-overlay hidden" role="dialog" aria-modal="true">
+      <div class="modal-card">
+        <h3>💡 Progressive Hint</h3>
+        <div class="hint-tier-list">
+          <div class="hint-tier-item active" id="hint-tier-1">
+            <span class="hint-tier-header">Tier 1: Warm (Board Awareness)</span>
+            <p id="hint-text-1">Loading...</p>
+          </div>
+          <div class="hint-tier-item hidden" id="hint-tier-2">
+            <span class="hint-tier-header">Tier 2: Warmer (Opponent Threat)</span>
+            <p id="hint-text-2">—</p>
+          </div>
+          <div class="hint-tier-item hidden" id="hint-tier-3">
+            <span class="hint-tier-header">Tier 3: Hot (Best Move Nudge)</span>
+            <p id="hint-text-3">—</p>
+          </div>
+        </div>
+        <button id="btn-hint-more" class="btn btn-primary" type="button">🐾 Need More Help?</button>
+        <button id="btn-hint-close" class="btn btn-secondary" type="button">Close</button>
+      </div>
+    </section>
+
+    <!-- M10 Blunder Confirmation Gate Modal -->
+    <section id="blunder-modal" class="modal-overlay hidden" role="dialog" aria-modal="true">
+      <div class="modal-card">
+        <h3>⚠️ Blunder Warning!</h3>
+        <p id="blunder-warning-text">This move will drop significant material or advantage. Are you sure you want to play it?</p>
+        <button id="btn-blunder-confirm" class="btn btn-danger" type="button">Play Move Anyway</button>
+        <button id="btn-blunder-cancel" class="btn btn-primary" type="button">Choose Different Move</button>
+      </div>
+    </section>
+
+    <!-- M10 Seed Score Modal -->
+    <section id="score-modal" class="modal-overlay hidden" role="dialog" aria-modal="true">
+      <div class="modal-card">
+        <h3>🏆 Hunt Completed!</h3>
+        <div class="score-total-wrap">
+          <span class="score-grade-badge" id="score-grade">A</span>
+          <p><strong id="score-total">85</strong> / 100 Points</p>
+        </div>
+        <div class="score-breakdown-grid">
+          <div><span>Accuracy (60%):</span> <strong id="score-accuracy">54.0</strong></div>
+          <div><span>Tactical Motif (30%):</span> <strong id="score-motif">30.0</strong></div>
+          <div><span>Hint Penalty:</span> <strong id="score-hints">-0.0</strong></div>
+          <div><span>Assistance:</span> <strong id="score-assistance">None</strong></div>
+        </div>
+        <button id="btn-score-continue" class="btn btn-primary" type="button">Continue</button>
+      </div>
+    </section>
 
     <section id="corpus-first-run" class="first-run-overlay hidden" role="dialog" aria-modal="true" aria-labelledby="corpus-title">
       <div class="first-run-card">
@@ -146,7 +232,7 @@
         <span class="status-dot live"></span>
         <span id="system-status">Purr-fect • Orange Cat Theme Active</span>
       </div>
-      <div class="version-tag">M9 Capacitor</div>
+      <div class="version-tag">M10 Capacitor</div>
     </footer>
 
     <nav class="bottom-nav" aria-label="Primary">

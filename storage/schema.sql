@@ -3,7 +3,7 @@ PRAGMA foreign_keys = ON;
 CREATE TABLE IF NOT EXISTS games (
   id TEXT PRIMARY KEY,
   date TEXT,
-  mode TEXT CHECK(mode IN ('practice','imported')),
+  mode TEXT CHECK(mode IN ('practice','imported','freeplay')),
   status TEXT NOT NULL DEFAULT 'completed' CHECK(status IN ('queued','in_progress','completed','analyzed')),
   result TEXT,
   seeded_weakness TEXT NULL,
@@ -16,7 +16,12 @@ CREATE TABLE IF NOT EXISTS games (
   white_player TEXT NULL,
   black_player TEXT NULL,
   analysis_engine TEXT NULL,
-  analysis_depth INTEGER NULL
+  analysis_depth INTEGER NULL,
+  assistance_level TEXT NOT NULL DEFAULT 'none' CHECK(assistance_level IN ('none','preview','hints','full')),
+  hint_count INTEGER NOT NULL DEFAULT 0,
+  takeback_count INTEGER NOT NULL DEFAULT 0,
+  time_control TEXT NULL,
+  persona TEXT NULL
 );
 
 CREATE TABLE IF NOT EXISTS moves (
@@ -83,9 +88,68 @@ CREATE TABLE IF NOT EXISTS weakness_tags (
   classification_id INTEGER NULL REFERENCES move_classifications(id)
 );
 
+CREATE TABLE IF NOT EXISTS settings (
+  key TEXT PRIMARY KEY,
+  value TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS seed_scores (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  game_id TEXT NOT NULL REFERENCES games(id),
+  accuracy_component REAL NOT NULL,
+  motif_component REAL NOT NULL,
+  hint_penalty REAL NOT NULL,
+  total_score REAL NOT NULL,
+  computed_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS daily_stats (
+  date TEXT PRIMARY KEY,
+  sessions_completed INTEGER NOT NULL DEFAULT 0,
+  goal_target INTEGER NOT NULL DEFAULT 3,
+  goal_met INTEGER NOT NULL DEFAULT 0 CHECK(goal_met IN (0,1)),
+  total_score REAL NOT NULL DEFAULT 0,
+  streak_day_counted INTEGER NOT NULL DEFAULT 0 CHECK(streak_day_counted IN (0,1))
+);
+
+CREATE TABLE IF NOT EXISTS streak_state (
+  id INTEGER PRIMARY KEY CHECK(id = 1),
+  current_streak INTEGER NOT NULL DEFAULT 0,
+  longest_streak INTEGER NOT NULL DEFAULT 0,
+  freezes_remaining INTEGER NOT NULL DEFAULT 2,
+  freezes_month TEXT NULL,
+  last_counted_date TEXT NULL
+);
+
+CREATE TABLE IF NOT EXISTS category_mastery (
+  category TEXT PRIMARY KEY CHECK(category IN (
+    'tactical',
+    'king_safety',
+    'pawn_structure',
+    'piece_activity',
+    'positional_judgment',
+    'endgame_technique',
+    'practical_time'
+  )),
+  mastery_level INTEGER NOT NULL DEFAULT 0 CHECK(mastery_level BETWEEN 0 AND 5),
+  last_practiced_at TEXT NULL,
+  decay_checked_at TEXT NULL
+);
+
+CREATE TABLE IF NOT EXISTS hint_logs (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  game_id TEXT NOT NULL REFERENCES games(id),
+  fen TEXT NOT NULL,
+  tier TEXT NOT NULL CHECK(tier IN ('warm','warmer','hot')),
+  detector TEXT NULL,
+  created_at TEXT NOT NULL
+);
+
 CREATE INDEX IF NOT EXISTS idx_games_seeded_weakness ON games(seeded_weakness);
 CREATE INDEX IF NOT EXISTS idx_moves_game_id ON moves(game_id);
 CREATE INDEX IF NOT EXISTS idx_weakness_tags_category ON weakness_tags(category);
 CREATE INDEX IF NOT EXISTS idx_move_classifications_move_id ON move_classifications(move_id);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_move_classifications_current
   ON move_classifications(move_id) WHERE is_current = 1;
+CREATE INDEX IF NOT EXISTS idx_seed_scores_game_id ON seed_scores(game_id);
+CREATE INDEX IF NOT EXISTS idx_hint_logs_game_id ON hint_logs(game_id);

@@ -207,3 +207,66 @@ test('app wiring: SQLite settings round-trip survives a new async connection wra
     assert.equal(reopened.chesscom_username, 'lastautumnleaf1');
   } finally { sqlite.close(); }
 });
+
+test('app wiring: index.html exposes M10 eval bar, clocks, action buttons, and modal overlays', () => {
+  const dom = new JSDOM(HTML);
+  const doc = dom.window.document;
+
+  // Eval bar & clocks
+  assert.ok(doc.getElementById('eval-bar-wrapper'), 'eval-bar-wrapper must exist in board container');
+  assert.ok(doc.getElementById('eval-bar-fill'), 'eval-bar-fill element must exist');
+  assert.ok(doc.getElementById('opponent-clock'), 'opponent-clock badge must exist');
+  assert.ok(doc.getElementById('user-clock'), 'user-clock badge must exist');
+
+  // In-game action bar
+  assert.ok(doc.getElementById('btn-hint'), 'btn-hint must exist');
+  assert.ok(doc.getElementById('btn-takeback'), 'btn-takeback must exist');
+  assert.ok(doc.getElementById('btn-draw'), 'btn-draw must exist');
+  assert.ok(doc.getElementById('btn-resign'), 'btn-resign must exist');
+  assert.ok(doc.getElementById('btn-freeplay'), 'btn-freeplay must exist');
+
+  // M10 Modals
+  assert.ok(doc.getElementById('hint-modal'), 'hint-modal overlay must exist');
+  assert.ok(doc.getElementById('blunder-modal'), 'blunder-modal overlay must exist');
+  assert.ok(doc.getElementById('score-modal'), 'score-modal overlay must exist');
+});
+
+test('app wiring: profile page renders M10 streaks, mastery, and export/import backup controls', () => {
+  const dom = new JSDOM(HTML);
+  const container = dom.window.document.getElementById('profile-page');
+  renderProfile({
+    container,
+    stats: {
+      totalSessions: 5,
+      totalMoves: 45,
+      weaknessTally: [{ category: 'tactical', count: 4 }],
+      recentSessions: [],
+      streakState: { currentStreak: 3, longestStreak: 5, freezesRemaining: 1 },
+      todayStats: { sessionsCompleted: 2 },
+      categoryMastery: {
+        tactical: { category: 'tactical', masteryLevel: 3 },
+      },
+    },
+    settings: {
+      display_name: 'Orange Cat Hunter',
+      cat_avatar: 'orange-tabby',
+      chesscom_username: 'lastautumnleaf1',
+      engine_skill_level: '12',
+      theme: 'cat',
+      daily_goal: '3',
+      freeplay_persona: 'hunter',
+      freeplay_time_control: '3|2',
+    },
+    corpusStatus: { populated: true, puzzleCount: 7200, version: 'm10-v1' },
+    focus: { weaknessCategory: 'tactical' },
+  });
+
+  assert.match(container.textContent, /Daily Hunt Streak & Mastery/);
+  assert.match(container.textContent, /3/); // Current streak
+  assert.match(container.textContent, /1\/2/); // Freezes left
+  assert.match(container.textContent, /Category Mastery/);
+  assert.match(container.textContent, /Database Backup & Restore/);
+  assert.ok(container.querySelector('#btn-db-export'));
+  assert.ok(container.querySelector('#btn-db-import'));
+});
+

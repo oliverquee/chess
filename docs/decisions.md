@@ -1,5 +1,23 @@
 # Decision log
 
+## 2026-08-21 — M10 assistance rule amendment and usage-based tracking
+
+**Status:** approved
+
+Amended the invariant on AI analysis and assistance to cleanly distinguish between
+the two runtime surfaces:
+1. Chess.com embedded surface: Strictly zero assistance, evaluation, or DOM extraction
+   (theme-only CSS injection). Non-negotiable fair-play and ToS boundary.
+2. Offline Practice & Free Play vs local Stockfish: On-demand assistance (SEE hanging
+   piece detection, null-move threats, blunder confirmations, best-move nudges, future
+   move preview, and eval bar) is permitted as a core learning/training mechanism.
+
+To protect longitudinal analytical data integrity:
+- Every game persists `assistance_level` (`'none'`, `'preview'`, `'hints'`, `'full'`),
+  `hint_count`, and `takeback_count`, derived from actual in-game actions rather than
+  pre-configured settings.
+- All weakness, bias, and CPL metrics queries strictly filter `WHERE assistance_level = 'none'`.
+
 ## 2026-08-20 — M9 addendum: embedded Chess.com theme-only surface
 
 **Status:** implemented; emulator selector verification pending

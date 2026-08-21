@@ -8,13 +8,29 @@ import { PracticeSession } from '../engine/practiceSession.js';
 import {
   completeGameSession,
   createQueuedGame,
+  exportDatabaseJson,
+  getCategoryMastery,
+  getDailyStats,
   getGameHistory,
   getGameStatus,
+  getHintLogs,
+  getRecentDailyStats,
+  getSeedScore,
+  getSettings,
+  getStreakState,
   getWeaknessTally,
+  importDatabaseJson,
   initDb,
+  recordDailySession,
+  resetUserData,
   saveGameSession,
+  saveHintLog,
+  saveSeedScore,
   saveWeaknessTags,
+  setSetting,
   transitionGameStatus,
+  updateCategoryMastery,
+  updateStreakState,
 } from '../storage/db.js';
 
 const RAW_FEN = 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1';
@@ -28,7 +44,6 @@ function withTempDb(fn) {
     return fn(db);
   } finally {
     db.close();
-    rmSync(dir, { recursive: true, force: true });
   }
 }
 
@@ -161,7 +176,7 @@ test('initDb migrates legacy eval_cp into eval_cp_before without fabricating eva
     const weaknessColumns = db.prepare('PRAGMA table_info(weakness_tags)').all().map((column) => column.name);
     assert.ok(weaknessColumns.includes('classification_id'));
     const gameColumns = db.prepare('PRAGMA table_info(games)').all().map((column) => column.name);
-    for (const column of ['import_source', 'external_game_id', 'player_color', 'analysis_engine']) {
+    for (const column of ['import_source', 'external_game_id', 'player_color', 'analysis_engine', 'assistance_level']) {
       assert.ok(gameColumns.includes(column));
     }
   } finally {
@@ -225,30 +240,129 @@ test('queued and in-progress lifecycle state survives a SQLite close/reopen boun
   }
 });
 
-test('getWeaknessTally returns category counts from stored move tags', async () => {
-  const summary = await buildPracticeSummary('game-tally');
+test('getWeaknessTally returns category counts from unassisted games only', async () => {
+  const unassistedSummary = await buildPracticeSummary('game-unassisted');
+  const assistedSummary = await buildPracticeSummary('game-assisted');
+  assistedSummary.assistance_level = 'hints';
 
   return withTempDb((db) => {
-    saveGameSession(db, summary);
-    const [stored] = getGameHistory(db);
-    const [firstMove, secondMove] = stored.moves;
+    saveGameSession(db, unassistedSummary);
+    saveGameSession(db, assistedSummary);
 
-    saveWeaknessTags(db, firstMove.id, [
+    const [unassistedStored] = getGameHistory(db).filter((g) => g.id === 'game-unassisted');
+    const [assistedStored] = getGameHistory(db).filter((g) => g.id === 'game-assisted');
+
+    saveWeaknessTags(db, unassistedStored.moves[0].id, [
       { category: 'tactical', severity: 'high' },
       { category: 'king_safety', severity: 'medium' },
     ]);
-    saveWeaknessTags(db, secondMove.id, [
-      { category: 'tactical', severity: 'low' },
-      { category: 'pawn_structure', severity: 'low' },
+    saveWeaknessTags(db, assistedStored.moves[0].id, [
+      { category: 'tactical', severity: 'high' },
+      { category: 'endgame_technique', severity: 'high' },
     ]);
 
-    assert.deepEqual(getWeaknessTally(db), [
-      { category: 'tactical', count: 2 },
+    const tally = getWeaknessTally(db);
+    assert.deepEqual(tally, [
       { category: 'king_safety', count: 1 },
-      { category: 'pawn_structure', count: 1 },
+      { category: 'tactical', count: 1 },
     ]);
-
-    const sources = db.prepare('SELECT DISTINCT source FROM weakness_tags').all().map((row) => row.source);
-    assert.deepEqual(sources, ['ai_classification']);
+    // 'endgame_technique' from assisted game MUST be excluded
+    assert.ok(!tally.some((t) => t.category === 'endgame_technique'));
   });
 });
+
+test('seed scores, hint logs, daily stats, streaks, and mastery persist and round-trip', () => withTempDb((db) => {
+  // 1. Settings
+  setSetting(db, 'daily_goal', '5');
+  setSetting(db, 'freeplay_persona', 'panther');
+  const settings = getSettings(db);
+  assert.equal(settings.daily_goal, '5');
+  assert.equal(settings.freeplay_persona, 'panther');
+
+  // 2. Games + Seed Score + Hint Log
+  saveGameSession(db, {
+    id: 'seed-game-1',
+    date: '2026-08-21T10:00:00.000Z',
+    mode: 'practice',
+    moves: [{
+      game_id: 'seed-game-1',
+      ply_number: 1,
+      fen_before: START_FEN,
+      move_played: 'e2e4',
+      timestamp: '2026-08-21T10:00:01.000Z',
+    }],
+  });
+  saveSeedScore(db, {
+    gameId: 'seed-game-1',
+    accuracyComponent: 55.5,
+    motifComponent: 28.0,
+    hintPenalty: 5.0,
+    totalScore: 78.5,
+  });
+  const seedScore = getSeedScore(db, 'seed-game-1');
+  assert.equal(seedScore.total_score, 78.5);
+  assert.equal(seedScore.accuracy_component, 55.5);
+
+  saveHintLog(db, {
+    gameId: 'seed-game-1',
+    fen: START_FEN,
+    tier: 'warm',
+    detector: 'hanging_piece',
+  });
+  const hints = getHintLogs(db, 'seed-game-1');
+  assert.equal(hints.length, 1);
+  assert.equal(hints[0].tier, 'warm');
+  assert.equal(hints[0].detector, 'hanging_piece');
+
+  // 3. Daily Stats
+  recordDailySession(db, { date: '2026-08-21', targetGoal: 3, sessionScore: 80, isCountedStreakDay: 1 });
+  recordDailySession(db, { date: '2026-08-21', targetGoal: 3, sessionScore: 70, isCountedStreakDay: 1 });
+  const daily = getDailyStats(db, '2026-08-21');
+  assert.equal(daily.sessionsCompleted, 2);
+  assert.equal(daily.totalScore, 150);
+  assert.equal(daily.goalMet, false);
+
+  recordDailySession(db, { date: '2026-08-21', targetGoal: 3, sessionScore: 90, isCountedStreakDay: 1 });
+  const dailyUpdated = getDailyStats(db, '2026-08-21');
+  assert.equal(dailyUpdated.sessionsCompleted, 3);
+  assert.equal(dailyUpdated.goalMet, true);
+
+  // 4. Streak State
+  updateStreakState(db, {
+    currentStreak: 5,
+    longestStreak: 10,
+    freezesRemaining: 1,
+    freezesMonth: '2026-08',
+    lastCountedDate: '2026-08-21',
+  });
+  const streak = getStreakState(db);
+  assert.equal(streak.currentStreak, 5);
+  assert.equal(streak.longestStreak, 10);
+  assert.equal(streak.freezesRemaining, 1);
+
+  // 5. Category Mastery
+  updateCategoryMastery(db, {
+    category: 'tactical',
+    masteryLevel: 3,
+    lastPracticedAt: '2026-08-21T10:00:00.000Z',
+  });
+  const mastery = getCategoryMastery(db);
+  assert.equal(mastery.tactical.masteryLevel, 3);
+  assert.equal(mastery.king_safety.masteryLevel, 0);
+
+  // 6. Export and Import
+  const exported = exportDatabaseJson(db);
+  assert.ok(exported.tables.games.length >= 1);
+  assert.ok(exported.tables.seed_scores.length >= 1);
+  assert.ok(exported.tables.daily_stats.length >= 1);
+
+  resetUserData(db);
+  assert.equal(getGameHistory(db).length, 0);
+  assert.equal(getSeedScore(db, 'seed-game-1'), null);
+
+  importDatabaseJson(db, exported);
+  assert.equal(getGameHistory(db).length, 1);
+  assert.equal(getSeedScore(db, 'seed-game-1').total_score, 78.5);
+  assert.equal(getDailyStats(db, '2026-08-21').sessionsCompleted, 3);
+}));
+

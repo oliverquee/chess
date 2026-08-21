@@ -6,12 +6,28 @@ import {
   completeGameSession,
   createQueuedGame,
   createQueuedGames,
+  exportDatabaseJson,
+  getCategoryMastery,
+  getDailyStats,
   getGameHistory,
   getGameStatus,
+  getHintLogs,
+  getRecentDailyStats,
+  getSeedScore,
+  getSettings,
+  getStreakState,
   getWeaknessTally,
+  importDatabaseJson,
+  recordDailySession,
+  resetUserData,
   saveGameSession,
+  saveHintLog,
+  saveSeedScore,
   saveWeaknessTags,
+  setSetting,
   transitionGameStatus,
+  updateCategoryMastery,
+  updateStreakState,
 } from '../storage/mobileDb.js';
 
 const RAW_FEN = 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1';
@@ -24,7 +40,7 @@ PRAGMA foreign_keys = ON;
 CREATE TABLE IF NOT EXISTS games (
   id TEXT PRIMARY KEY,
   date TEXT,
-  mode TEXT CHECK(mode IN ('practice','imported')),
+  mode TEXT CHECK(mode IN ('practice','imported','freeplay')),
   status TEXT NOT NULL DEFAULT 'completed' CHECK(status IN ('queued','in_progress','completed','analyzed')),
   result TEXT,
   seeded_weakness TEXT NULL,
@@ -37,7 +53,12 @@ CREATE TABLE IF NOT EXISTS games (
   white_player TEXT NULL,
   black_player TEXT NULL,
   analysis_engine TEXT NULL,
-  analysis_depth INTEGER NULL
+  analysis_depth INTEGER NULL,
+  assistance_level TEXT NOT NULL DEFAULT 'none' CHECK(assistance_level IN ('none','preview','hints','full')),
+  hint_count INTEGER NOT NULL DEFAULT 0,
+  takeback_count INTEGER NOT NULL DEFAULT 0,
+  time_control TEXT NULL,
+  persona TEXT NULL
 );
 
 CREATE TABLE IF NOT EXISTS moves (
@@ -103,12 +124,74 @@ CREATE TABLE IF NOT EXISTS weakness_tags (
   source TEXT DEFAULT 'ai_classification',
   classification_id INTEGER NULL REFERENCES move_classifications(id)
 );
+
+CREATE TABLE IF NOT EXISTS settings (
+  key TEXT PRIMARY KEY,
+  value TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS seed_scores (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  game_id TEXT NOT NULL REFERENCES games(id),
+  accuracy_component REAL NOT NULL,
+  motif_component REAL NOT NULL,
+  hint_penalty REAL NOT NULL,
+  total_score REAL NOT NULL,
+  computed_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS daily_stats (
+  date TEXT PRIMARY KEY,
+  sessions_completed INTEGER NOT NULL DEFAULT 0,
+  goal_target INTEGER NOT NULL DEFAULT 3,
+  goal_met INTEGER NOT NULL DEFAULT 0 CHECK(goal_met IN (0,1)),
+  total_score REAL NOT NULL DEFAULT 0,
+  streak_day_counted INTEGER NOT NULL DEFAULT 0 CHECK(streak_day_counted IN (0,1))
+);
+
+CREATE TABLE IF NOT EXISTS streak_state (
+  id INTEGER PRIMARY KEY CHECK(id = 1),
+  current_streak INTEGER NOT NULL DEFAULT 0,
+  longest_streak INTEGER NOT NULL DEFAULT 0,
+  freezes_remaining INTEGER NOT NULL DEFAULT 2,
+  freezes_month TEXT NULL,
+  last_counted_date TEXT NULL
+);
+
+CREATE TABLE IF NOT EXISTS category_mastery (
+  category TEXT PRIMARY KEY CHECK(category IN (
+    'tactical',
+    'king_safety',
+    'pawn_structure',
+    'piece_activity',
+    'positional_judgment',
+    'endgame_technique',
+    'practical_time'
+  )),
+  mastery_level INTEGER NOT NULL DEFAULT 0 CHECK(mastery_level BETWEEN 0 AND 5),
+  last_practiced_at TEXT NULL,
+  decay_checked_at TEXT NULL
+);
+
+CREATE TABLE IF NOT EXISTS hint_logs (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  game_id TEXT NOT NULL REFERENCES games(id),
+  fen TEXT NOT NULL,
+  tier TEXT NOT NULL CHECK(tier IN ('warm','warmer','hot')),
+  detector TEXT NULL,
+  created_at TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_games_seeded_weakness ON games(seeded_weakness);
+CREATE INDEX IF NOT EXISTS idx_moves_game_id ON moves(game_id);
+CREATE INDEX IF NOT EXISTS idx_weakness_tags_category ON weakness_tags(category);
+CREATE INDEX IF NOT EXISTS idx_move_classifications_move_id ON move_classifications(move_id);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_move_classifications_current
+  ON move_classifications(move_id) WHERE is_current = 1;
+CREATE INDEX IF NOT EXISTS idx_seed_scores_game_id ON seed_scores(game_id);
+CREATE INDEX IF NOT EXISTS idx_hint_logs_game_id ON hint_logs(game_id);
 `;
 
-/**
- * Creates a mock Capacitor SQLite connection backed by node:sqlite DatabaseSync
- * so we can exercise mobileDb.js with real SQL semantics and async Promise contracts.
- */
 function createMockCapacitorDb() {
   const syncDb = new DatabaseSync(':memory:');
   syncDb.exec('PRAGMA foreign_keys = ON;');
@@ -267,26 +350,120 @@ test('mobileDb: completeGameSession rolls status and move inserts back atomicall
   }
 });
 
-test('mobileDb: getWeaknessTally returns category counts from stored tags', async () => {
+test('mobileDb: getWeaknessTally returns category counts from unassisted games only', async () => {
   const db = createMockCapacitorDb();
   try {
-    const summary = await buildPracticeSummary('game-mobile-tally');
-    await saveGameSession(db, summary);
-    const [stored] = await getGameHistory(db);
+    const unassistedSummary = await buildPracticeSummary('game-mobile-unassisted');
+    const assistedSummary = await buildPracticeSummary('game-mobile-assisted');
+    assistedSummary.assistance_level = 'hints';
 
-    await saveWeaknessTags(db, stored.moves[0].id, [
+    await saveGameSession(db, unassistedSummary);
+    await saveGameSession(db, assistedSummary);
+
+    const history = await getGameHistory(db);
+    const unassistedStored = history.find((g) => g.id === 'game-mobile-unassisted');
+    const assistedStored = history.find((g) => g.id === 'game-mobile-assisted');
+
+    await saveWeaknessTags(db, unassistedStored.moves[0].id, [
       { category: 'tactical', severity: 'high' },
       { category: 'king_safety', severity: 'medium' },
     ]);
-    await saveWeaknessTags(db, stored.moves[1].id, [
-      { category: 'tactical', severity: 'low' },
+    await saveWeaknessTags(db, assistedStored.moves[0].id, [
+      { category: 'tactical', severity: 'high' },
+      { category: 'endgame_technique', severity: 'high' },
     ]);
 
     const tally = await getWeaknessTally(db);
     assert.deepEqual(tally, [
-      { category: 'tactical', count: 2 },
       { category: 'king_safety', count: 1 },
+      { category: 'tactical', count: 1 },
     ]);
+    assert.ok(!tally.some((t) => t.category === 'endgame_technique'));
+  } finally {
+    db.close();
+  }
+});
+
+test('mobileDb: seed scores, hint logs, daily stats, streaks, mastery, export/import round-trip', async () => {
+  const db = createMockCapacitorDb();
+  try {
+    // 1. Settings
+    await setSetting(db, 'daily_goal', '4');
+    await setSetting(db, 'freeplay_persona', 'hunter');
+    const settings = await getSettings(db);
+    assert.equal(settings.daily_goal, '4');
+    assert.equal(settings.freeplay_persona, 'hunter');
+
+    // 2. Games + Seed Score + Hint Log
+    await saveGameSession(db, {
+      id: 'm-seed-game-1',
+      date: '2026-08-21T10:00:00.000Z',
+      mode: 'practice',
+      moves: [{
+        game_id: 'm-seed-game-1',
+        ply_number: 1,
+        fen_before: START_FEN,
+        move_played: 'e2e4',
+        timestamp: '2026-08-21T10:00:01.000Z',
+      }],
+    });
+    await saveSeedScore(db, {
+      gameId: 'm-seed-game-1',
+      accuracyComponent: 60.0,
+      motifComponent: 30.0,
+      hintPenalty: 0.0,
+      totalScore: 90.0,
+    });
+    const seedScore = await getSeedScore(db, 'm-seed-game-1');
+    assert.equal(seedScore.total_score, 90.0);
+
+    await saveHintLog(db, {
+      gameId: 'm-seed-game-1',
+      fen: START_FEN,
+      tier: 'warmer',
+      detector: 'null_move_threat',
+    });
+    const hints = await getHintLogs(db, 'm-seed-game-1');
+    assert.equal(hints.length, 1);
+    assert.equal(hints[0].tier, 'warmer');
+
+    // 3. Daily Stats
+    await recordDailySession(db, { date: '2026-08-21', targetGoal: 3, sessionScore: 85, isCountedStreakDay: 1 });
+    const daily = await getDailyStats(db, '2026-08-21');
+    assert.equal(daily.sessionsCompleted, 1);
+    assert.equal(daily.totalScore, 85);
+
+    // 4. Streak State
+    await updateStreakState(db, {
+      currentStreak: 3,
+      longestStreak: 7,
+      freezesRemaining: 2,
+      freezesMonth: '2026-08',
+      lastCountedDate: '2026-08-21',
+    });
+    const streak = await getStreakState(db);
+    assert.equal(streak.currentStreak, 3);
+
+    // 5. Category Mastery
+    await updateCategoryMastery(db, {
+      category: 'king_safety',
+      masteryLevel: 4,
+      lastPracticedAt: '2026-08-21T10:00:00.000Z',
+    });
+    const mastery = await getCategoryMastery(db);
+    assert.equal(mastery.king_safety.masteryLevel, 4);
+
+    // 6. Export and Import
+    const exported = await exportDatabaseJson(db);
+    assert.ok(exported.tables.games.length >= 1);
+    assert.ok(exported.tables.seed_scores.length >= 1);
+
+    await resetUserData(db);
+    assert.equal((await getGameHistory(db)).length, 0);
+
+    await importDatabaseJson(db, exported);
+    assert.equal((await getGameHistory(db)).length, 1);
+    assert.equal((await getSeedScore(db, 'm-seed-game-1')).total_score, 90.0);
   } finally {
     db.close();
   }
