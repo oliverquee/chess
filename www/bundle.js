@@ -6151,12 +6151,14 @@ __export(mobileDb_exports, {
   createQueuedGame: () => createQueuedGame,
   createQueuedGames: () => createQueuedGames,
   exportDatabaseJson: () => exportDatabaseJson,
+  getAnalysisHistory: () => getAnalysisHistory,
   getCategoryMastery: () => getCategoryMastery,
   getDailyStats: () => getDailyStats,
   getGameById: () => getGameById,
   getGameHistory: () => getGameHistory,
   getGameStatus: () => getGameStatus,
   getHintLogs: () => getHintLogs,
+  getLatestAnalysisResults: () => getLatestAnalysisResults,
   getMoveClassifications: () => getMoveClassifications,
   getProfileStats: () => getProfileStats,
   getRecentDailyStats: () => getRecentDailyStats,
@@ -6168,6 +6170,7 @@ __export(mobileDb_exports, {
   initDb: () => initDb,
   recordDailySession: () => recordDailySession,
   resetUserData: () => resetUserData,
+  saveAnalysisResult: () => saveAnalysisResult,
   saveGameSession: () => saveGameSession,
   saveHintLog: () => saveHintLog,
   saveMoveClassification: () => saveMoveClassification,
@@ -7162,6 +7165,15 @@ CREATE TABLE IF NOT EXISTS hint_logs (
   created_at TEXT NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS analysis_results (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  run_at TEXT NOT NULL,
+  detector TEXT NOT NULL,
+  result_json TEXT NOT NULL,
+  games_analyzed INTEGER NOT NULL,
+  moves_analyzed INTEGER NOT NULL
+);
+
 CREATE INDEX IF NOT EXISTS idx_games_seeded_weakness ON games(seeded_weakness);
 CREATE INDEX IF NOT EXISTS idx_moves_game_id ON moves(game_id);
 CREATE INDEX IF NOT EXISTS idx_weakness_tags_category ON weakness_tags(category);
@@ -7170,6 +7182,7 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_move_classifications_current
   ON move_classifications(move_id) WHERE is_current = 1;
 CREATE INDEX IF NOT EXISTS idx_seed_scores_game_id ON seed_scores(game_id);
 CREATE INDEX IF NOT EXISTS idx_hint_logs_game_id ON hint_logs(game_id);
+CREATE INDEX IF NOT EXISTS idx_analysis_results_detector ON analysis_results(detector);
 `;
 var ALLOWED_MODES = /* @__PURE__ */ new Set(["practice", "imported", "freeplay"]);
 var SESSION_TRANSITIONS = Object.freeze({
@@ -8033,12 +8046,74 @@ async function clearAllUserData(db2) {
   await db2.execute("DELETE FROM daily_stats;");
   await db2.execute("DELETE FROM streak_state;");
   await db2.execute("DELETE FROM category_mastery;");
+  await db2.execute("DELETE FROM analysis_results;");
 }
 async function resetUserData(db2) {
   assertDb(db2);
   return withTransaction(db2, async (transactionDb) => {
     await clearAllUserData(transactionDb);
   });
+}
+async function saveAnalysisResult(db2, {
+  run_at = (/* @__PURE__ */ new Date()).toISOString(),
+  detector,
+  result,
+  games_analyzed,
+  moves_analyzed
+}) {
+  assertDb(db2);
+  if (typeof detector !== "string" || !detector.trim()) throw new TypeError("detector must be a non-empty string.");
+  if (result === void 0) throw new TypeError("result is required.");
+  const resultJson = typeof result === "string" ? result : JSON.stringify(result);
+  const stmt = `
+    INSERT INTO analysis_results (run_at, detector, result_json, games_analyzed, moves_analyzed)
+    VALUES (?, ?, ?, ?, ?)
+  `;
+  await db2.run(stmt, [
+    run_at,
+    detector,
+    resultJson,
+    Number(games_analyzed) || 0,
+    Number(moves_analyzed) || 0
+  ]);
+}
+async function getLatestAnalysisResults(db2) {
+  assertDb(db2);
+  const rows = await db2.query(`
+    SELECT r1.*
+    FROM analysis_results r1
+    JOIN (
+      SELECT detector, MAX(id) AS max_id
+      FROM analysis_results
+      GROUP BY detector
+    ) r2 ON r1.id = r2.max_id
+    ORDER BY r1.id DESC
+  `);
+  const results = {};
+  for (const row of rows.values || []) {
+    results[row.detector] = {
+      id: row.id,
+      run_at: row.run_at,
+      detector: row.detector,
+      result: JSON.parse(row.result_json),
+      games_analyzed: row.games_analyzed,
+      moves_analyzed: row.moves_analyzed
+    };
+  }
+  return results;
+}
+async function getAnalysisHistory(db2, detector) {
+  assertDb(db2);
+  const stmt = detector ? "SELECT * FROM analysis_results WHERE detector = ? ORDER BY id DESC" : "SELECT * FROM analysis_results ORDER BY id DESC";
+  const rows = await db2.query(stmt, detector ? [detector] : []);
+  return (rows.values || []).map((r) => ({
+    id: r.id,
+    run_at: r.run_at,
+    detector: r.detector,
+    result: JSON.parse(r.result_json),
+    games_analyzed: r.games_analyzed,
+    moves_analyzed: r.moves_analyzed
+  }));
 }
 async function exportDatabaseJson(db2) {
   assertDb(db2);
@@ -8052,7 +8127,8 @@ async function exportDatabaseJson(db2) {
     daily_stats,
     streak_state,
     category_mastery,
-    hint_logs
+    hint_logs,
+    analysis_results
   ] = await Promise.all([
     db2.query("SELECT * FROM settings"),
     db2.query("SELECT * FROM games"),
@@ -8063,7 +8139,8 @@ async function exportDatabaseJson(db2) {
     db2.query("SELECT * FROM daily_stats"),
     db2.query("SELECT * FROM streak_state"),
     db2.query("SELECT * FROM category_mastery"),
-    db2.query("SELECT * FROM hint_logs")
+    db2.query("SELECT * FROM hint_logs"),
+    db2.query("SELECT * FROM analysis_results")
   ]);
   return {
     version: 1,
@@ -8078,7 +8155,8 @@ async function exportDatabaseJson(db2) {
       daily_stats: daily_stats.values || [],
       streak_state: streak_state.values || [],
       category_mastery: category_mastery.values || [],
-      hint_logs: hint_logs.values || []
+      hint_logs: hint_logs.values || [],
+      analysis_results: analysis_results.values || []
     }
   };
 }
@@ -8232,6 +8310,15 @@ async function importDatabaseJson(db2, payload) {
       `;
       for (const r of t.hint_logs) {
         await transactionDb.run(stmt, [r.id, r.game_id, r.fen, r.tier, r.detector, r.created_at]);
+      }
+    }
+    if (Array.isArray(t.analysis_results)) {
+      const stmt = `
+        INSERT INTO analysis_results (id, run_at, detector, result_json, games_analyzed, moves_analyzed)
+        VALUES (?, ?, ?, ?, ?, ?)
+      `;
+      for (const r of t.analysis_results) {
+        await transactionDb.run(stmt, [r.id, r.run_at, r.detector, r.result_json, r.games_analyzed, r.moves_analyzed]);
       }
     }
     return true;
@@ -8739,7 +8826,7 @@ function renderProfile({ container, stats, settings: settings2, corpusStatus: co
 }
 
 // www/chesscom-theme.css
-var chesscom_theme_default = '/**\r\n * Chess.com Mobile Visual Theme Overlay \u2014 Orange Tabby Theme Pack\r\n * THEME-ONLY: Visual styling only. No board reading, no assistance during live play.\r\n */\r\n\r\n:root {\r\n  --chess-analyst-accent: #E67E22;\r\n  --chess-analyst-accent-dark: #D35400;\r\n  --chess-analyst-board-light: #F7EFE2;\r\n  --chess-analyst-board-dark: #C8854E;\r\n  --chess-analyst-board-frame: #7A4526;\r\n  --chess-analyst-highlight: rgba(230, 126, 34, 0.45);\r\n}\r\n\r\n/* Page Background */\r\nbody, #board-layout-main, .board-layout-main {\r\n  background-color: #FAF6F0 !important;\r\n}\r\n\r\n/* Web Component Board and Squares */\r\nwc-chess-board, chess-board, .board {\n  background-image: conic-gradient(\n    var(--chess-analyst-board-dark) 25%,\n    var(--chess-analyst-board-light) 0 50%,\n    var(--chess-analyst-board-dark) 0 75%,\n    var(--chess-analyst-board-light) 0\n  ) !important;\n  background-size: 25% 25% !important;\n  background-repeat: repeat !important;\n  border-radius: 10px !important;\n  box-shadow: 0 4px 16px rgba(110, 61, 48, 0.18) !important;\r\n  border: 2px solid var(--chess-analyst-board-frame) !important;\r\n}\r\n\r\nwc-chess-board .light, chess-board .light, .board .light,\r\n.square-light, [class*="square-"][class*="light"] {\r\n  background-color: var(--chess-analyst-board-light) !important;\r\n}\r\n\r\nwc-chess-board .dark, chess-board .dark, .board .dark,\r\n.square-dark, [class*="square-"][class*="dark"] {\r\n  background-color: var(--chess-analyst-board-dark) !important;\r\n}\r\n\r\n/* Move Highlights */\r\n.highlight, [class*="highlight"], .selected-square {\r\n  background-color: var(--chess-analyst-highlight) !important;\r\n}\r\n\r\n/* Buttons & UI Accents */\r\nbutton, [role="button"], .ui_v5-button-component {\r\n  border-radius: 10px !important;\r\n}\r\n\r\n.ui_v5-button-primary {\r\n  background-color: var(--chess-analyst-accent) !important;\r\n  border-color: var(--chess-analyst-accent-dark) !important;\r\n}\r\n';
+var chesscom_theme_default = '/**\r\n * Chess.com Mobile Visual Theme Overlay \u2014 Orange Tabby Theme Pack\r\n * THEME-ONLY: Visual styling only. No board reading, no assistance during live play.\r\n */\r\n\r\n:root {\r\n  --chess-analyst-accent: #E67E22;\r\n  --chess-analyst-accent-dark: #D35400;\r\n  --chess-analyst-board-light: #F7EFE2;\r\n  --chess-analyst-board-dark: #C8854E;\r\n  --chess-analyst-board-frame: #7A4526;\r\n  --chess-analyst-highlight: rgba(230, 126, 34, 0.45);\r\n}\r\n\r\n/* Page Background */\r\nbody, #board-layout-main, .board-layout-main {\r\n  background-color: #FAF6F0 !important;\r\n}\r\n\r\n/* Web Component Board and Squares */\r\nwc-chess-board, chess-board, .board {\r\n  background-image: conic-gradient(\r\n    var(--chess-analyst-board-dark) 25%,\r\n    var(--chess-analyst-board-light) 0 50%,\r\n    var(--chess-analyst-board-dark) 0 75%,\r\n    var(--chess-analyst-board-light) 0\r\n  ) !important;\r\n  background-size: 25% 25% !important;\r\n  background-repeat: repeat !important;\r\n  border-radius: 10px !important;\r\n  box-shadow: 0 4px 16px rgba(110, 61, 48, 0.18) !important;\r\n  border: 2px solid var(--chess-analyst-board-frame) !important;\r\n}\r\n\r\nwc-chess-board .light, chess-board .light, .board .light,\r\n.square-light, [class*="square-"][class*="light"] {\r\n  background-color: var(--chess-analyst-board-light) !important;\r\n}\r\n\r\nwc-chess-board .dark, chess-board .dark, .board .dark,\r\n.square-dark, [class*="square-"][class*="dark"] {\r\n  background-color: var(--chess-analyst-board-dark) !important;\r\n}\r\n\r\n/* Move Highlights */\r\n.highlight, [class*="highlight"], .selected-square {\r\n  background-color: var(--chess-analyst-highlight) !important;\r\n}\r\n\r\n/* Buttons & UI Accents */\r\nbutton, [role="button"], .ui_v5-button-component {\r\n  border-radius: 10px !important;\r\n}\r\n\r\n.ui_v5-button-primary {\r\n  background-color: var(--chess-analyst-accent) !important;\r\n  border-color: var(--chess-analyst-accent-dark) !important;\r\n}\r\n';
 
 // www/chesscomView.js
 var CHESSCOM_URL = "https://www.chess.com/play/online";

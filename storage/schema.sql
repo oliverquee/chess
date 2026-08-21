@@ -148,6 +148,15 @@ CREATE TABLE IF NOT EXISTS hint_logs (
   created_at TEXT NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS analysis_results (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  run_at TEXT NOT NULL,
+  detector TEXT NOT NULL,
+  result_json TEXT NOT NULL,
+  games_analyzed INTEGER NOT NULL,
+  moves_analyzed INTEGER NOT NULL
+);
+
 CREATE INDEX IF NOT EXISTS idx_games_seeded_weakness ON games(seeded_weakness);
 CREATE INDEX IF NOT EXISTS idx_moves_game_id ON moves(game_id);
 CREATE INDEX IF NOT EXISTS idx_weakness_tags_category ON weakness_tags(category);
@@ -156,3 +165,5 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_move_classifications_current
   ON move_classifications(move_id) WHERE is_current = 1;
 CREATE INDEX IF NOT EXISTS idx_seed_scores_game_id ON seed_scores(game_id);
 CREATE INDEX IF NOT EXISTS idx_hint_logs_game_id ON hint_logs(game_id);
+CREATE INDEX IF NOT EXISTS idx_analysis_results_detector ON analysis_results(detector);
+

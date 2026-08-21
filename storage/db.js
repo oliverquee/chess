@@ -253,8 +253,17 @@ function ensureM10ColumnsAndTables(db) {
       detector TEXT NULL,
       created_at TEXT NOT NULL
     );
+    CREATE TABLE IF NOT EXISTS analysis_results (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      run_at TEXT NOT NULL,
+      detector TEXT NOT NULL,
+      result_json TEXT NOT NULL,
+      games_analyzed INTEGER NOT NULL,
+      moves_analyzed INTEGER NOT NULL
+    );
     CREATE INDEX IF NOT EXISTS idx_seed_scores_game_id ON seed_scores(game_id);
     CREATE INDEX IF NOT EXISTS idx_hint_logs_game_id ON hint_logs(game_id);
+    CREATE INDEX IF NOT EXISTS idx_analysis_results_detector ON analysis_results(detector);
   `);
 }
 
@@ -971,6 +980,7 @@ function clearAllUserData(db) {
     DELETE FROM daily_stats;
     DELETE FROM streak_state;
     DELETE FROM category_mastery;
+    DELETE FROM analysis_results;
   `);
 }
 
@@ -979,6 +989,72 @@ export function resetUserData(db) {
   return withTransaction(db, () => {
     clearAllUserData(db);
   });
+}
+
+export function saveAnalysisResult(db, {
+  run_at = new Date().toISOString(),
+  detector,
+  result,
+  games_analyzed,
+  moves_analyzed,
+}) {
+  assertDb(db);
+  if (typeof detector !== 'string' || !detector.trim()) throw new TypeError('detector must be a non-empty string.');
+  if (result === undefined) throw new TypeError('result is required.');
+  const resultJson = typeof result === 'string' ? result : JSON.stringify(result);
+  const stmt = db.prepare(`
+    INSERT INTO analysis_results (run_at, detector, result_json, games_analyzed, moves_analyzed)
+    VALUES (?, ?, ?, ?, ?)
+  `);
+  stmt.run(
+    run_at,
+    detector,
+    resultJson,
+    normalizeNullableInteger(games_analyzed, 'games_analyzed') ?? 0,
+    normalizeNullableInteger(moves_analyzed, 'moves_analyzed') ?? 0,
+  );
+}
+
+export function getLatestAnalysisResults(db) {
+  assertDb(db);
+  const rows = db.prepare(`
+    SELECT r1.*
+    FROM analysis_results r1
+    JOIN (
+      SELECT detector, MAX(id) AS max_id
+      FROM analysis_results
+      GROUP BY detector
+    ) r2 ON r1.id = r2.max_id
+    ORDER BY r1.id DESC
+  `).all();
+  const results = {};
+  for (const row of rows) {
+    results[row.detector] = {
+      id: row.id,
+      run_at: row.run_at,
+      detector: row.detector,
+      result: JSON.parse(row.result_json),
+      games_analyzed: row.games_analyzed,
+      moves_analyzed: row.moves_analyzed,
+    };
+  }
+  return results;
+}
+
+export function getAnalysisHistory(db, detector) {
+  assertDb(db);
+  const stmt = detector
+    ? db.prepare('SELECT * FROM analysis_results WHERE detector = ? ORDER BY id DESC')
+    : db.prepare('SELECT * FROM analysis_results ORDER BY id DESC');
+  const rows = detector ? stmt.all(detector) : stmt.all();
+  return rows.map((r) => ({
+    id: r.id,
+    run_at: r.run_at,
+    detector: r.detector,
+    result: JSON.parse(r.result_json),
+    games_analyzed: r.games_analyzed,
+    moves_analyzed: r.moves_analyzed,
+  }));
 }
 
 export function exportDatabaseJson(db) {
@@ -994,6 +1070,7 @@ export function exportDatabaseJson(db) {
     streak_state: db.prepare('SELECT * FROM streak_state').all(),
     category_mastery: db.prepare('SELECT * FROM category_mastery').all(),
     hint_logs: db.prepare('SELECT * FROM hint_logs').all(),
+    analysis_results: db.prepare('SELECT * FROM analysis_results').all(),
   };
   return {
     version: 1,
@@ -1115,7 +1192,17 @@ export function importDatabaseJson(db, payload) {
         stmt.run(r.id, r.game_id, r.fen, r.tier, r.detector, r.created_at);
       }
     }
+    if (Array.isArray(t.analysis_results)) {
+      const stmt = db.prepare(`
+        INSERT INTO analysis_results (id, run_at, detector, result_json, games_analyzed, moves_analyzed)
+        VALUES (?, ?, ?, ?, ?, ?)
+      `);
+      for (const r of t.analysis_results) {
+        stmt.run(r.id, r.run_at, r.detector, r.result_json, r.games_analyzed, r.moves_analyzed);
+      }
+    }
     return true;
   });
 }
+
 

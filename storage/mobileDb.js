@@ -153,6 +153,15 @@ CREATE TABLE IF NOT EXISTS hint_logs (
   created_at TEXT NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS analysis_results (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  run_at TEXT NOT NULL,
+  detector TEXT NOT NULL,
+  result_json TEXT NOT NULL,
+  games_analyzed INTEGER NOT NULL,
+  moves_analyzed INTEGER NOT NULL
+);
+
 CREATE INDEX IF NOT EXISTS idx_games_seeded_weakness ON games(seeded_weakness);
 CREATE INDEX IF NOT EXISTS idx_moves_game_id ON moves(game_id);
 CREATE INDEX IF NOT EXISTS idx_weakness_tags_category ON weakness_tags(category);
@@ -161,6 +170,7 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_move_classifications_current
   ON move_classifications(move_id) WHERE is_current = 1;
 CREATE INDEX IF NOT EXISTS idx_seed_scores_game_id ON seed_scores(game_id);
 CREATE INDEX IF NOT EXISTS idx_hint_logs_game_id ON hint_logs(game_id);
+CREATE INDEX IF NOT EXISTS idx_analysis_results_detector ON analysis_results(detector);
 `;
 
 const ALLOWED_MODES = new Set(['practice', 'imported', 'freeplay']);
@@ -1132,6 +1142,7 @@ async function clearAllUserData(db) {
   await db.execute('DELETE FROM daily_stats;');
   await db.execute('DELETE FROM streak_state;');
   await db.execute('DELETE FROM category_mastery;');
+  await db.execute('DELETE FROM analysis_results;');
 }
 
 export async function resetUserData(db) {
@@ -1141,11 +1152,78 @@ export async function resetUserData(db) {
   });
 }
 
+export async function saveAnalysisResult(db, {
+  run_at = new Date().toISOString(),
+  detector,
+  result,
+  games_analyzed,
+  moves_analyzed,
+}) {
+  assertDb(db);
+  if (typeof detector !== 'string' || !detector.trim()) throw new TypeError('detector must be a non-empty string.');
+  if (result === undefined) throw new TypeError('result is required.');
+  const resultJson = typeof result === 'string' ? result : JSON.stringify(result);
+  const stmt = `
+    INSERT INTO analysis_results (run_at, detector, result_json, games_analyzed, moves_analyzed)
+    VALUES (?, ?, ?, ?, ?)
+  `;
+  await db.run(stmt, [
+    run_at,
+    detector,
+    resultJson,
+    Number(games_analyzed) || 0,
+    Number(moves_analyzed) || 0,
+  ]);
+}
+
+export async function getLatestAnalysisResults(db) {
+  assertDb(db);
+  const rows = await db.query(`
+    SELECT r1.*
+    FROM analysis_results r1
+    JOIN (
+      SELECT detector, MAX(id) AS max_id
+      FROM analysis_results
+      GROUP BY detector
+    ) r2 ON r1.id = r2.max_id
+    ORDER BY r1.id DESC
+  `);
+  const results = {};
+  for (const row of rows.values || []) {
+    results[row.detector] = {
+      id: row.id,
+      run_at: row.run_at,
+      detector: row.detector,
+      result: JSON.parse(row.result_json),
+      games_analyzed: row.games_analyzed,
+      moves_analyzed: row.moves_analyzed,
+    };
+  }
+  return results;
+}
+
+export async function getAnalysisHistory(db, detector) {
+  assertDb(db);
+  const stmt = detector
+    ? 'SELECT * FROM analysis_results WHERE detector = ? ORDER BY id DESC'
+    : 'SELECT * FROM analysis_results ORDER BY id DESC';
+  const rows = await db.query(stmt, detector ? [detector] : []);
+  return (rows.values || []).map((r) => ({
+    id: r.id,
+    run_at: r.run_at,
+    detector: r.detector,
+    result: JSON.parse(r.result_json),
+    games_analyzed: r.games_analyzed,
+    moves_analyzed: r.moves_analyzed,
+  }));
+}
+
 export async function exportDatabaseJson(db) {
   assertDb(db);
   const [
     settings, games, moves, weakness_tags, move_classifications,
-    seed_scores, daily_stats, streak_state, category_mastery, hint_logs
+    seed_scores, daily_stats, streak_state, category_mastery, hint_logs,
+    analysis_results
   ] = await Promise.all([
     db.query('SELECT * FROM settings'),
     db.query('SELECT * FROM games'),
@@ -1157,6 +1235,7 @@ export async function exportDatabaseJson(db) {
     db.query('SELECT * FROM streak_state'),
     db.query('SELECT * FROM category_mastery'),
     db.query('SELECT * FROM hint_logs'),
+    db.query('SELECT * FROM analysis_results'),
   ]);
 
   return {
@@ -1173,6 +1252,7 @@ export async function exportDatabaseJson(db) {
       streak_state: streak_state.values || [],
       category_mastery: category_mastery.values || [],
       hint_logs: hint_logs.values || [],
+      analysis_results: analysis_results.values || [],
     },
   };
 }
@@ -1289,6 +1369,15 @@ export async function importDatabaseJson(db, payload) {
       `;
       for (const r of t.hint_logs) {
         await transactionDb.run(stmt, [r.id, r.game_id, r.fen, r.tier, r.detector, r.created_at]);
+      }
+    }
+    if (Array.isArray(t.analysis_results)) {
+      const stmt = `
+        INSERT INTO analysis_results (id, run_at, detector, result_json, games_analyzed, moves_analyzed)
+        VALUES (?, ?, ?, ?, ?, ?)
+      `;
+      for (const r of t.analysis_results) {
+        await transactionDb.run(stmt, [r.id, r.run_at, r.detector, r.result_json, r.games_analyzed, r.moves_analyzed]);
       }
     }
     return true;

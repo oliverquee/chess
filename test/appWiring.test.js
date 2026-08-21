@@ -18,10 +18,11 @@ import { DatabaseSync } from 'node:sqlite';
 import { TrainingOrchestrator } from '../core/orchestrator.js';
 import { PracticeSession } from '../engine/practiceSession.js';
 import * as dbStorage from '../storage/db.js';
-import { initDb } from '../storage/db.js';
+import { initDb, saveGameSession, getLatestAnalysisResults } from '../storage/db.js';
 import { initPuzzleDb, SqlitePuzzleLibrary } from '../data/puzzleDb.js';
 import { getSettings, setSetting } from '../storage/mobileDb.js';
 import { renderProfile } from '../www/profile.js';
+import { runBiasAnalysis } from '../analysis/biasDetectors.js';
 
 const HTML = readFileSync(new URL('../www/index.html', import.meta.url), 'utf8');
 const CAPACITOR_CONFIG = JSON.parse(readFileSync(new URL('../capacitor.config.json', import.meta.url), 'utf8'));
@@ -269,4 +270,49 @@ test('app wiring: profile page renders M10 streaks, mastery, and export/import b
   assert.ok(container.querySelector('#btn-db-export'));
   assert.ok(container.querySelector('#btn-db-import'));
 });
+
+test('app wiring: M11-B cognitive bias detectors execute against real db and persist results', () => {
+  const db = initDb(':memory:');
+
+  saveGameSession(db, {
+    id: 'game-wiring-m11b',
+    mode: 'imported',
+    status: 'analyzed',
+    result: '1-0',
+    player_color: 'white',
+    assistance_level: 'none',
+    start_fen: 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1',
+    moves: [
+      {
+        game_id: 'game-wiring-m11b',
+        ply_number: 1,
+        fen_before: 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1',
+        move_played: 'e2e4',
+        eval_cp_before: 20,
+        eval_cp_after: -25,
+        best_move: 'e2e4',
+        best_move_depth8: 'e2e4',
+        time_to_move_ms: 1500,
+        timestamp: '2026-08-01T00:00:00Z',
+      },
+    ],
+  });
+
+  const analysis = runBiasAnalysis(db, { save: true, runAt: '2026-08-21T12:00:00Z' });
+  assert.ok(analysis.tilt_index);
+  assert.ok(analysis.material_bias);
+  assert.ok(analysis.plan_fixation);
+  assert.ok(analysis.forcing_bias);
+  assert.ok(analysis.win_loss_asymmetry);
+  assert.ok(analysis.first_idea_bias);
+  assert.equal(analysis.meta.games_analyzed, 1);
+  assert.equal(analysis.meta.moves_analyzed, 1);
+
+  const persisted = getLatestAnalysisResults(db);
+  assert.equal(persisted.tilt_index.detector, 'tilt_index');
+  assert.equal(persisted.tilt_index.games_analyzed, 1);
+
+  db.close();
+});
+
 
