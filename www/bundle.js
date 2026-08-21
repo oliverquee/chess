@@ -4820,6 +4820,85 @@ function getPuzzlesForWeakness(weaknessCategory, stepBucket = "start-slow", { li
 var DEFAULT_ANALYSIS_DEPTH = 16;
 var DEFAULT_PLAY_DEPTH = 12;
 var MATE_SCORE_CP = 1e5;
+var PERSONAS = Object.freeze({
+  kitten: Object.freeze({
+    id: "kitten",
+    name: "Kitten",
+    avatar: "\u{1F431}",
+    theme: "orange-tabby",
+    targetElo: 800,
+    uciLimitStrength: false,
+    skillLevel: 0,
+    depth: 1,
+    description: "Playful and makes frequent blunders (~800 Elo)"
+  }),
+  tabby: Object.freeze({
+    id: "tabby",
+    name: "Tabby",
+    avatar: "\u{1F431}",
+    theme: "orange-tabby",
+    targetElo: 1200,
+    uciLimitStrength: false,
+    skillLevel: 3,
+    depth: 4,
+    description: "Casual club player with basic tactical awareness (~1200 Elo)"
+  }),
+  alley_cat: Object.freeze({
+    id: "alley_cat",
+    name: "Alley Cat",
+    avatar: "\u{1F408}",
+    theme: "calico",
+    targetElo: 1500,
+    uciLimitStrength: true,
+    uciElo: 1500,
+    depth: 8,
+    description: "Solid intermediate player with sharp eyes (~1500 Elo)"
+  }),
+  hunter: Object.freeze({
+    id: "hunter",
+    name: "Hunter",
+    avatar: "\u{1F406}",
+    theme: "fox",
+    targetElo: 1800,
+    uciLimitStrength: true,
+    uciElo: 1800,
+    depth: 12,
+    description: "Dangerous attacking player with strong fundamentals (~1800 Elo)"
+  }),
+  panther: Object.freeze({
+    id: "panther",
+    name: "Panther",
+    avatar: "\u{1F406}",
+    theme: "black-cat",
+    targetElo: 2100,
+    uciLimitStrength: true,
+    uciElo: 2100,
+    depth: 16,
+    description: "Master-level tactician who pounces on any inaccuracy (~2100 Elo)"
+  }),
+  apex_tiger: Object.freeze({
+    id: "apex_tiger",
+    name: "Apex Tiger",
+    avatar: "\u{1F405}",
+    theme: "panda",
+    targetElo: 2800,
+    uciLimitStrength: false,
+    skillLevel: 20,
+    depth: 20,
+    description: "Uncapped Stockfish engine at maximum strength (~2800+ Elo)"
+  })
+});
+function resolvePersona(config) {
+  if (!config) return PERSONAS.tabby;
+  if (typeof config === "string") {
+    const key = config.toLowerCase().replace(/[-\s]/g, "_");
+    return PERSONAS[key] ?? PERSONAS.tabby;
+  }
+  if (typeof config === "object" && config.id && PERSONAS[config.id]) {
+    return PERSONAS[config.id];
+  }
+  return config;
+}
 function normalizeWorkerMessage(event) {
   const value = event?.data ?? event;
   return String(value ?? "").trim();
@@ -5010,22 +5089,45 @@ var StockfishWorkerClient = class {
       return this.search(fen, `go depth ${Math.max(1, Math.trunc(depth))}`);
     });
   }
-  playMove(fen, skillLevel = 10) {
+  playMove(fen, personaOrSkillLevel = 10) {
     return this.enqueue(async () => {
       await this.ensureReady();
-      const strength = Number(skillLevel);
-      if (!Number.isFinite(strength)) {
-        throw new TypeError("skillLevel must be a finite number.");
-      }
-      if (strength >= 0 && strength <= 20) {
-        this.post("setoption name UCI_LimitStrength value false");
-        this.post(`setoption name Skill Level value ${Math.trunc(strength)}`);
+      let targetDepth = this.playDepth;
+      if (typeof personaOrSkillLevel === "string" && PERSONAS[personaOrSkillLevel.toLowerCase().replace(/[-\s]/g, "_")]) {
+        const p = resolvePersona(personaOrSkillLevel);
+        targetDepth = p.depth ?? this.playDepth;
+        if (p.uciLimitStrength && p.uciElo) {
+          this.post("setoption name UCI_LimitStrength value true");
+          this.post(`setoption name UCI_Elo value ${Math.trunc(p.uciElo)}`);
+        } else {
+          this.post("setoption name UCI_LimitStrength value false");
+          this.post(`setoption name Skill Level value ${Math.trunc(p.skillLevel ?? 20)}`);
+        }
+      } else if (typeof personaOrSkillLevel === "object" && personaOrSkillLevel !== null) {
+        const p = personaOrSkillLevel;
+        targetDepth = p.depth ?? this.playDepth;
+        if (p.uciLimitStrength && p.uciElo) {
+          this.post("setoption name UCI_LimitStrength value true");
+          this.post(`setoption name UCI_Elo value ${Math.trunc(p.uciElo)}`);
+        } else {
+          this.post("setoption name UCI_LimitStrength value false");
+          this.post(`setoption name Skill Level value ${Math.trunc(p.skillLevel ?? 20)}`);
+        }
       } else {
-        this.post("setoption name UCI_LimitStrength value true");
-        this.post(`setoption name UCI_Elo value ${Math.trunc(strength)}`);
+        const strength = Number(personaOrSkillLevel);
+        if (!Number.isFinite(strength)) {
+          throw new TypeError("personaOrSkillLevel must be a persona name, object, or finite number.");
+        }
+        if (strength >= 0 && strength <= 20) {
+          this.post("setoption name UCI_LimitStrength value false");
+          this.post(`setoption name Skill Level value ${Math.trunc(strength)}`);
+        } else {
+          this.post("setoption name UCI_LimitStrength value true");
+          this.post(`setoption name UCI_Elo value ${Math.trunc(strength)}`);
+        }
       }
       await this.syncReady();
-      const result = await this.search(fen, `go depth ${this.playDepth}`);
+      const result = await this.search(fen, `go depth ${Math.max(1, Math.trunc(targetDepth))}`);
       return result.bestMove;
     });
   }
@@ -5090,6 +5192,7 @@ function applyUciMoveToFen(fen, uciMove) {
 }
 
 // engine/practiceSession.js
+var STANDARD_START_FEN = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1";
 function createDefaultEngine() {
   return {
     analyzePosition,
@@ -5124,26 +5227,46 @@ function getMotifReadyFen(puzzle) {
 }
 var PracticeSession = class {
   constructor({
-    puzzle,
+    puzzle = null,
+    mode = puzzle ? "practice" : "freeplay",
+    startFen = null,
     skillLevel = 10,
+    persona = "tabby",
+    timeControl = "5|0",
+    playerColor = "white",
     analysisDepth = 14,
     engine = createDefaultEngine(),
     gameId = defaultId(),
     now = () => (/* @__PURE__ */ new Date()).toISOString()
-  }) {
-    if (!puzzle?.FEN) throw new Error("A seed puzzle with FEN is required.");
+  } = {}) {
     if (!engine?.analyzePosition || !engine?.playMove) {
       throw new TypeError("engine must provide analyzePosition() and playMove().");
     }
     this.puzzle = puzzle;
+    this.mode = mode;
     this.skillLevel = skillLevel;
+    this.persona = typeof persona === "object" && persona?.id ? persona.id : persona || "tabby";
+    this.timeControl = timeControl;
     this.analysisDepth = analysisDepth;
     this.engine = engine;
     this.gameId = gameId;
     this.now = now;
-    this.startFen = getMotifReadyFen(puzzle);
+    if (playerColor === "random") {
+      this.playerColor = Math.random() < 0.5 ? "white" : "black";
+    } else {
+      this.playerColor = playerColor === "black" ? "black" : "white";
+    }
+    if (puzzle?.FEN) {
+      this.startFen = getMotifReadyFen(puzzle);
+    } else {
+      this.startFen = startFen || STANDARD_START_FEN;
+    }
     this.currentFen = this.startFen;
     this.logs = [];
+    this.hints = [];
+    this.hintCount = 0;
+    this.takebackCount = 0;
+    this.previewUsed = false;
     this.ended = false;
     this.result = null;
   }
@@ -5185,7 +5308,7 @@ var PracticeSession = class {
     });
     const engineFenBefore = playerFenAfter;
     const engineBeforeAnalysis = playerAfterAnalysis;
-    const engineMove = await this.engine.playMove(engineFenBefore, this.skillLevel);
+    const engineMove = await this.engine.playMove(engineFenBefore, this.persona ?? this.skillLevel);
     if (!engineMove) {
       this.currentFen = playerFenAfter;
       this.logs.push(playerLog);
@@ -5204,6 +5327,86 @@ var PracticeSession = class {
     this.currentFen = engineFenAfter;
     this.logs.push(playerLog, engineLog);
     return { playerLog, engineLog, currentFen: this.currentFen };
+  }
+  async playEngineMove() {
+    if (this.ended) throw new Error("Practice session has ended.");
+    const fenBefore = this.currentFen;
+    const beforeAnalysis = await this.evaluate(fenBefore);
+    const engineMove = await this.engine.playMove(fenBefore, this.persona ?? this.skillLevel);
+    if (!engineMove) return null;
+    const fenAfter = applyUciMoveToFen(fenBefore, engineMove);
+    const afterAnalysis = await this.evaluate(fenAfter);
+    const engineLog = this.makeLog({
+      plyNumber: this.nextPlyNumber,
+      fenBefore,
+      movePlayed: engineMove,
+      beforeAnalysis,
+      afterAnalysis
+    });
+    this.currentFen = fenAfter;
+    this.logs.push(engineLog);
+    return { engineLog, currentFen: this.currentFen };
+  }
+  takeback() {
+    if (this.ended) throw new Error("Cannot take back moves on an ended session.");
+    if (this.logs.length === 0) return null;
+    const pliesToRemove = Math.min(2, this.logs.length);
+    const removedLogs = this.logs.splice(this.logs.length - pliesToRemove, pliesToRemove);
+    this.currentFen = removedLogs[0].fen_before;
+    this.takebackCount += 1;
+    return {
+      revertedFen: this.currentFen,
+      takebackCount: this.takebackCount,
+      removedLogs
+    };
+  }
+  recordHint(tier, detector = null) {
+    this.hintCount += 1;
+    const log = {
+      tier,
+      detector,
+      fen: this.currentFen,
+      timestamp: this.now()
+    };
+    this.hints.push(log);
+    return log;
+  }
+  recordPreview() {
+    this.previewUsed = true;
+  }
+  resign(color = this.playerColor) {
+    this.ended = true;
+    this.result = color === "white" ? "0-1" : "1-0";
+    return this.summary();
+  }
+  async offerDraw() {
+    if (this.ended) throw new Error("Session is already ended.");
+    const analysis = await this.evaluate(this.currentFen);
+    const cp = analysis.evalCp;
+    if (cp !== null && Math.abs(cp) <= 75 && !analysis.isMateScore) {
+      this.ended = true;
+      this.result = "1/2-1/2";
+      return { accepted: true, result: "1/2-1/2", summary: this.summary() };
+    }
+    return {
+      accepted: false,
+      reason: "Engine evaluated position as advantageous and declined the draw."
+    };
+  }
+  computeAssistanceLevel() {
+    if (this.hintCount === 0 && this.takebackCount === 0 && !this.previewUsed) {
+      return "none";
+    }
+    if (this.takebackCount > 1) {
+      return "full";
+    }
+    if (this.hintCount > 0 || this.takebackCount === 1) {
+      return "hints";
+    }
+    if (this.previewUsed) {
+      return "preview";
+    }
+    return "full";
   }
   async run(moveProvider, { maxTurns = Number.POSITIVE_INFINITY } = {}) {
     if (typeof moveProvider !== "function") throw new TypeError("moveProvider must be a function.");
@@ -5228,12 +5431,18 @@ var PracticeSession = class {
   summary() {
     return {
       id: this.gameId,
-      mode: "practice",
-      seeded_weakness: this.puzzle.weaknessCategory ?? null,
-      seed_puzzle_id: this.puzzle.PuzzleId ?? null,
+      mode: this.mode,
+      seeded_weakness: this.puzzle?.weaknessCategory ?? null,
+      seed_puzzle_id: this.puzzle?.PuzzleId ?? null,
       start_fen: this.startFen,
       current_fen: this.currentFen,
       result: this.result,
+      player_color: this.playerColor,
+      time_control: this.timeControl,
+      persona: this.persona,
+      assistance_level: this.computeAssistanceLevel(),
+      hint_count: this.hintCount,
+      takeback_count: this.takebackCount,
       moves: [...this.logs]
     };
   }
@@ -5397,26 +5606,577 @@ var CORPUS_MANIFEST = Object.freeze({
   url: "https://github.com/oliverquee/chess/releases/download/m9-corpus-v1/puzzles-subset.jsonl.gz"
 });
 
+// engine/clock.js
+var STANDARD_TIME_CONTROLS = Object.freeze([
+  { id: "1|0", name: "Bullet 1|0", baseSeconds: 60, incrementSeconds: 0 },
+  { id: "3|0", name: "Blitz 3|0", baseSeconds: 180, incrementSeconds: 0 },
+  { id: "3|2", name: "Blitz 3|2", baseSeconds: 180, incrementSeconds: 2 },
+  { id: "5|0", name: "Rapid 5|0", baseSeconds: 300, incrementSeconds: 0 },
+  { id: "10|0", name: "Rapid 10|0", baseSeconds: 600, incrementSeconds: 0 },
+  { id: "15|10", name: "Classical 15|10", baseSeconds: 900, incrementSeconds: 10 },
+  { id: "none", name: "Untimed", baseSeconds: null, incrementSeconds: 0 }
+]);
+function parseTimeControl(tc) {
+  if (!tc || tc === "none" || tc === "untimed" || tc === "unlimited" || tc === "\u221E") {
+    return { baseSeconds: null, incrementSeconds: 0, isUntimed: true };
+  }
+  const match = String(tc).trim().match(/^(\d+)\|(\d+)$/);
+  if (!match) {
+    throw new RangeError(`Invalid time control format: "${tc}". Expected "M|S" or "none".`);
+  }
+  const baseMinutes = Number.parseInt(match[1], 10);
+  const incrementSeconds = Number.parseInt(match[2], 10);
+  return {
+    baseSeconds: baseMinutes * 60,
+    incrementSeconds,
+    isUntimed: false
+  };
+}
+function formatClockTime(ms) {
+  if (ms === null || ms === void 0 || !Number.isFinite(ms) || ms < 0) {
+    ms = 0;
+  }
+  const totalSeconds = Math.floor(ms / 1e3);
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+  const mm = String(minutes).padStart(2, "0");
+  const ss = String(seconds).padStart(2, "0");
+  if (totalSeconds < 10 && ms > 0) {
+    const tenths = Math.floor(ms % 1e3 / 100);
+    return `${mm}:${ss}.${tenths}`;
+  }
+  return `${mm}:${ss}`;
+}
+var ChessClock = class {
+  constructor({
+    timeControl = "5|0",
+    onFlagFall = null,
+    now = () => Date.now()
+  } = {}) {
+    this.timeControl = timeControl;
+    this.onFlagFall = typeof onFlagFall === "function" ? onFlagFall : null;
+    this.now = now;
+    const parsed = parseTimeControl(timeControl);
+    this.isUntimed = parsed.isUntimed;
+    this.baseMs = parsed.baseSeconds !== null ? parsed.baseSeconds * 1e3 : null;
+    this.incrementMs = parsed.incrementSeconds * 1e3;
+    this.whiteTimeMs = this.baseMs;
+    this.blackTimeMs = this.baseMs;
+    this.activeColor = null;
+    this.isRunning = false;
+    this.lastTickTimestamp = null;
+    this.flagFallenColor = null;
+  }
+  _normalizeColor(color) {
+    if (!color) return null;
+    const lower = String(color).toLowerCase();
+    if (lower === "w" || lower === "white") return "white";
+    if (lower === "b" || lower === "black") return "black";
+    throw new RangeError(`Unknown color: ${color}`);
+  }
+  start(initialColor = "white", nowMs = this.now()) {
+    if (this.isUntimed) return;
+    const color = this._normalizeColor(initialColor);
+    this.activeColor = color;
+    this.isRunning = true;
+    this.lastTickTimestamp = nowMs;
+  }
+  _updateActiveColorElapsed(nowMs = this.now()) {
+    if (!this.isRunning || !this.activeColor || this.isUntimed || this.lastTickTimestamp === null) {
+      return;
+    }
+    const elapsed = Math.max(0, nowMs - this.lastTickTimestamp);
+    if (this.activeColor === "white") {
+      this.whiteTimeMs = Math.max(0, this.whiteTimeMs - elapsed);
+      if (this.whiteTimeMs <= 0 && !this.flagFallenColor) {
+        this.flagFallenColor = "white";
+        this.isRunning = false;
+        this.onFlagFall?.("white");
+      }
+    } else if (this.activeColor === "black") {
+      this.blackTimeMs = Math.max(0, this.blackTimeMs - elapsed);
+      if (this.blackTimeMs <= 0 && !this.flagFallenColor) {
+        this.flagFallenColor = "black";
+        this.isRunning = false;
+        this.onFlagFall?.("black");
+      }
+    }
+    this.lastTickTimestamp = nowMs;
+  }
+  switchTurn(nextColor, nowMs = this.now()) {
+    if (this.isUntimed) return;
+    this._updateActiveColorElapsed(nowMs);
+    if (this.flagFallenColor) return;
+    if (this.activeColor === "white") {
+      this.whiteTimeMs += this.incrementMs;
+    } else if (this.activeColor === "black") {
+      this.blackTimeMs += this.incrementMs;
+    }
+    this.activeColor = this._normalizeColor(nextColor);
+    this.lastTickTimestamp = nowMs;
+    this.isRunning = true;
+  }
+  pause(nowMs = this.now()) {
+    if (this.isUntimed) return;
+    this._updateActiveColorElapsed(nowMs);
+    this.isRunning = false;
+  }
+  resume(nowMs = this.now()) {
+    if (this.isUntimed || this.flagFallenColor) return;
+    this.lastTickTimestamp = nowMs;
+    this.isRunning = true;
+  }
+  getTime(color, nowMs = this.now()) {
+    if (this.isUntimed) return null;
+    const normalized = this._normalizeColor(color);
+    if (this.isRunning && this.activeColor === normalized && this.lastTickTimestamp !== null) {
+      const elapsed = Math.max(0, nowMs - this.lastTickTimestamp);
+      const remaining = (normalized === "white" ? this.whiteTimeMs : this.blackTimeMs) - elapsed;
+      return Math.max(0, remaining);
+    }
+    return normalized === "white" ? this.whiteTimeMs : this.blackTimeMs;
+  }
+  isFlagFallen(color, nowMs = this.now()) {
+    if (this.isUntimed) return false;
+    const time = this.getTime(color, nowMs);
+    return time !== null && time <= 0;
+  }
+  state(nowMs = this.now()) {
+    return {
+      timeControl: this.timeControl,
+      isUntimed: this.isUntimed,
+      activeColor: this.activeColor,
+      isRunning: this.isRunning,
+      whiteTimeMs: this.getTime("white", nowMs),
+      blackTimeMs: this.getTime("black", nowMs),
+      flagFallenColor: this.flagFallenColor
+    };
+  }
+};
+
+// engine/evalBar.js
+var SIGMOID_COEFFICIENT = -368208e-8;
+var MATE_SCORE_THRESHOLD = 9e4;
+function evalToWinPercent(evalCp, isMate = false) {
+  if (evalCp === null || evalCp === void 0 || !Number.isFinite(evalCp)) {
+    return 50;
+  }
+  if (isMate || Math.abs(evalCp) >= MATE_SCORE_THRESHOLD) {
+    return evalCp > 0 ? 100 : 0;
+  }
+  const sigmoid = 2 / (1 + Math.exp(SIGMOID_COEFFICIENT * evalCp)) - 1;
+  const percent = 50 + 50 * sigmoid;
+  return Number(Math.min(100, Math.max(0, percent)).toFixed(1));
+}
+function formatEvalLabel(evalCp, isMate = false) {
+  if (evalCp === null || evalCp === void 0 || !Number.isFinite(evalCp)) {
+    return "0.0";
+  }
+  if (isMate || Math.abs(evalCp) >= MATE_SCORE_THRESHOLD) {
+    return evalCp > 0 ? "+M" : "-M";
+  }
+  const pawns = (evalCp / 100).toFixed(1);
+  if (evalCp > 0) return `+${pawns}`;
+  if (evalCp === 0) return "0.0";
+  return pawns;
+}
+function computeEvalBarState(analysis = {}) {
+  const evalCp = analysis?.evalCp ?? 0;
+  const isMate = Boolean(analysis?.isMateScore);
+  const whiteWinPercent = evalToWinPercent(evalCp, isMate);
+  const blackWinPercent = Number((100 - whiteWinPercent).toFixed(1));
+  const label = formatEvalLabel(evalCp, isMate);
+  return {
+    evalCp,
+    isMate,
+    whiteWinPercent,
+    blackWinPercent,
+    label,
+    // CSS height for White's portion of the vertical bar
+    whiteHeightPercent: whiteWinPercent
+  };
+}
+
+// engine/hints.js
+var PIECE_NAMES = Object.freeze({
+  p: "Pawn",
+  n: "Knight",
+  b: "Bishop",
+  r: "Rook",
+  q: "Queen",
+  k: "King"
+});
+var PIECE_VALUES = Object.freeze({
+  p: 100,
+  n: 320,
+  b: 330,
+  r: 500,
+  q: 900,
+  k: 2e4
+});
+function parseFenBoard(fen) {
+  const parts = String(fen).trim().split(/\s+/);
+  const rows = parts[0].split("/");
+  const board = [];
+  for (let r = 0; r < 8; r += 1) {
+    const row = [];
+    for (const char of rows[r]) {
+      if (/\d/.test(char)) {
+        const count = Number.parseInt(char, 10);
+        for (let i = 0; i < count; i += 1) row.push(null);
+      } else {
+        row.push(char);
+      }
+    }
+    board.push(row);
+  }
+  const activeColor = parts[1] === "b" ? "black" : "white";
+  return { board, activeColor, fullFen: fen };
+}
+function squareToCoords(square) {
+  if (!square || square.length < 2) return null;
+  const file2 = square.charCodeAt(0) - "a".charCodeAt(0);
+  const rank2 = 8 - Number.parseInt(square[1], 10);
+  if (file2 < 0 || file2 > 7 || rank2 < 0 || rank2 > 7) return null;
+  return { row: rank2, col: file2 };
+}
+function getPieceAt(board, square) {
+  const coords = squareToCoords(square);
+  if (!coords) return null;
+  return board[coords.row][coords.col];
+}
+function getNullMoveFen(fen) {
+  const parts = String(fen).trim().split(/\s+/);
+  if (parts.length < 2) return fen;
+  const currentTurn = parts[1];
+  const nextTurn = currentTurn === "w" ? "b" : "w";
+  const castling = parts[2] || "-";
+  const enPassant = "-";
+  const halfMoves = parts[4] !== void 0 && !Number.isNaN(Number.parseInt(parts[4], 10)) ? String(Number.parseInt(parts[4], 10) + 1) : "0";
+  const fullMoves = parts[5] || "1";
+  return `${parts[0]} ${nextTurn} ${castling} ${enPassant} ${halfMoves} ${fullMoves}`;
+}
+async function getTier1Hint(fen, engine) {
+  const { board, activeColor } = parseFenBoard(fen);
+  const analysis = await engine.analyzePosition(fen, 8);
+  const bestMove = analysis?.bestMove;
+  if (bestMove && bestMove.length >= 4) {
+    const fromSquare = bestMove.slice(0, 2);
+    const toSquare = bestMove.slice(2, 4);
+    const targetPiece = getPieceAt(board, toSquare);
+    const attackingPiece = getPieceAt(board, fromSquare);
+    if (targetPiece) {
+      const pieceName = PIECE_NAMES[targetPiece.toLowerCase()] || "piece";
+      return {
+        tier: "warm",
+        type: "tactical_target",
+        square: toSquare,
+        message: `Look at the ${pieceName} on ${toSquare}. There is tactical tension around that square.`
+      };
+    }
+  }
+  return {
+    tier: "warm",
+    type: "board_awareness",
+    message: `Scan for undefended pieces and checks. Where can your pieces improve their activity?`
+  };
+}
+async function getTier2Hint(fen, engine) {
+  const nullFen = getNullMoveFen(fen);
+  let threatMove = null;
+  try {
+    const threatAnalysis = await engine.analyzePosition(nullFen, 8);
+    threatMove = threatAnalysis?.bestMove;
+  } catch {
+  }
+  if (threatMove && threatMove.length >= 4) {
+    const fromSquare = threatMove.slice(0, 2);
+    const toSquare = threatMove.slice(2, 4);
+    const { board } = parseFenBoard(fen);
+    const opponentPiece = getPieceAt(board, fromSquare);
+    const pieceName = opponentPiece ? PIECE_NAMES[opponentPiece.toLowerCase()] || "piece" : "opponent piece";
+    return {
+      tier: "warmer",
+      type: "opponent_threat",
+      threatMove,
+      fromSquare,
+      toSquare,
+      message: `Opponent Threat: If you make a passive move, opponent could play ${pieceName} to ${toSquare}!`
+    };
+  }
+  return {
+    tier: "warmer",
+    type: "opponent_threat",
+    message: `Watch out for opponent's central breaks and attacks toward your position.`
+  };
+}
+async function getTier3Hint(fen, engine) {
+  const analysis = await engine.analyzePosition(fen, 12);
+  const bestMove = analysis?.bestMove;
+  if (bestMove && bestMove.length >= 4) {
+    const fromSquare = bestMove.slice(0, 2);
+    const toSquare = bestMove.slice(2, 4);
+    const { board } = parseFenBoard(fen);
+    const piece = getPieceAt(board, fromSquare);
+    const pieceName = piece ? PIECE_NAMES[piece.toLowerCase()] || "piece" : "piece";
+    return {
+      tier: "hot",
+      type: "best_move_nudge",
+      bestMove,
+      fromSquare,
+      toSquare,
+      message: `Key Move: Consider moving your ${pieceName} from ${fromSquare} toward ${toSquare}.`
+    };
+  }
+  return {
+    tier: "hot",
+    type: "best_move_nudge",
+    message: `Look for the most active and forcing move in the current position.`
+  };
+}
+async function generateHint(fen, tier, engine) {
+  switch (tier) {
+    case "warm":
+      return getTier1Hint(fen, engine);
+    case "warmer":
+      return getTier2Hint(fen, engine);
+    case "hot":
+      return getTier3Hint(fen, engine);
+    default:
+      throw new RangeError(`Unknown hint tier: ${tier}. Expected 'warm', 'warmer', or 'hot'.`);
+  }
+}
+async function checkBlunderCandidate(fenBefore, proposedMove, engine) {
+  if (!fenBefore || !proposedMove || !engine) {
+    return { isBlunder: false, evalDelta: 0 };
+  }
+  const { activeColor } = parseFenBoard(fenBefore);
+  const beforeAnalysis = await engine.analyzePosition(fenBefore, 10);
+  const fenAfter = applyUciMoveToFen(fenBefore, proposedMove);
+  const afterAnalysis = await engine.analyzePosition(fenAfter, 10);
+  const evalBefore = beforeAnalysis?.evalCp ?? 0;
+  const evalAfter = afterAnalysis?.evalCp ?? 0;
+  let loss = 0;
+  if (activeColor === "white") {
+    loss = evalBefore - evalAfter;
+  } else {
+    loss = evalAfter - evalBefore;
+  }
+  const allowedMate = Boolean(afterAnalysis?.isMateScore && (activeColor === "white" && evalAfter < 0 || activeColor === "black" && evalAfter > 0));
+  const isBlunder = Boolean(loss >= 200 || allowedMate);
+  return {
+    isBlunder,
+    evalDelta: loss,
+    evalBefore,
+    evalAfter,
+    bestMove: beforeAnalysis?.bestMove ?? null,
+    message: isBlunder ? `Blunder Warning: This move drops ${loss >= 200 ? Math.round(loss / 100) + " pawns" : "the game"}!` : null
+  };
+}
+
+// engine/eval.js
+function nullableInteger(value, fieldName) {
+  if (value === null || value === void 0) return null;
+  if (!Number.isInteger(value)) throw new TypeError(`${fieldName} must be an integer or null.`);
+  return value;
+}
+function computeEvalDelta(log) {
+  if (!log || typeof log !== "object") throw new TypeError("log must be an object.");
+  const before = nullableInteger(log.eval_cp_before, "log.eval_cp_before");
+  const after = nullableInteger(log.eval_cp_after, "log.eval_cp_after");
+  if (before === null || after === null) return null;
+  if (Boolean(log.is_mate_score)) return null;
+  return -after - before;
+}
+
+// core/scoring.js
+function computeMoveAccuracy(log) {
+  if (!log || typeof log !== "object") return 100;
+  const delta = computeEvalDelta(log);
+  if (delta === null || delta === void 0) return 100;
+  if (delta >= 0) return 100;
+  const loss = Math.abs(delta);
+  const accuracy = Math.max(0, 100 - loss * 0.4);
+  return Number(accuracy.toFixed(1));
+}
+function calculateSeedScore(sessionSummary) {
+  if (!sessionSummary || typeof sessionSummary !== "object") {
+    return {
+      accuracyComponent: 0,
+      motifComponent: 0,
+      hintPenalty: 0,
+      totalScore: 0,
+      grade: "D"
+    };
+  }
+  const moves = Array.isArray(sessionSummary.moves) ? sessionSummary.moves : [];
+  const playerColor = sessionSummary.player_color || "white";
+  const playerMoves = moves.filter((m) => {
+    const isPlayer = playerColor === "white" ? m.ply_number % 2 === 1 : m.ply_number % 2 === 0;
+    return isPlayer;
+  });
+  let accuracyComponent = 60;
+  if (playerMoves.length > 0) {
+    const accuracies = playerMoves.map((m) => computeMoveAccuracy(m));
+    const meanAccuracy = accuracies.reduce((a, b) => a + b, 0) / accuracies.length;
+    accuracyComponent = Number((meanAccuracy * 0.6).toFixed(1));
+  }
+  let motifComponent = 15;
+  const result = sessionSummary.result;
+  if (result) {
+    const won = playerColor === "white" && result === "1-0" || playerColor === "black" && result === "0-1";
+    const lost = playerColor === "white" && result === "0-1" || playerColor === "black" && result === "1-0";
+    const drawn = result === "1/2-1/2";
+    if (won) motifComponent = 30;
+    else if (drawn) motifComponent = 15;
+    else if (lost) motifComponent = 0;
+  } else if (moves.length > 0) {
+    const lastMove = moves[moves.length - 1];
+    const finalEval = lastMove.eval_cp_after ?? lastMove.eval_cp_before ?? 0;
+    const isPlayerAhead = playerColor === "white" ? finalEval > 50 : finalEval < -50;
+    motifComponent = isPlayerAhead ? 25 : 10;
+  }
+  const hintCount = sessionSummary.hint_count || 0;
+  const hintPenalty = Number(Math.min(30, hintCount * 10).toFixed(1));
+  const rawTotal = accuracyComponent + motifComponent - hintPenalty;
+  const totalScore = Number(Math.max(0, Math.min(100, rawTotal)).toFixed(1));
+  let grade = "D";
+  if (totalScore >= 95) grade = "A+";
+  else if (totalScore >= 85) grade = "A";
+  else if (totalScore >= 70) grade = "B";
+  else if (totalScore >= 50) grade = "C";
+  return {
+    accuracyComponent,
+    motifComponent,
+    hintPenalty,
+    totalScore,
+    grade
+  };
+}
+
+// core/streaks.js
+var DEFAULT_DAILY_GOAL = 3;
+var MONTHLY_FREEZES = 2;
+var MASTERY_CATEGORIES = Object.freeze([
+  "tactical",
+  "king_safety",
+  "pawn_structure",
+  "piece_activity",
+  "positional_judgment",
+  "endgame_technique",
+  "practical_time"
+]);
+function parseDateDays(dateStr) {
+  if (!dateStr) return null;
+  const [y, m, d] = dateStr.split("-").map((n) => Number.parseInt(n, 10));
+  return Date.UTC(y, m - 1, d) / (1e3 * 60 * 60 * 24);
+}
+function processDailyStreakUpdate({
+  streakState = {},
+  currentDate = (/* @__PURE__ */ new Date()).toISOString().slice(0, 10),
+  sessionsCompletedToday = 0,
+  goalTarget = DEFAULT_DAILY_GOAL
+} = {}) {
+  let currentStreak = streakState?.currentStreak ?? streakState?.current_streak ?? 0;
+  let longestStreak = streakState?.longestStreak ?? streakState?.longest_streak ?? 0;
+  let freezesRemaining = streakState?.freezesRemaining ?? streakState?.freezes_remaining ?? MONTHLY_FREEZES;
+  let freezesMonth = streakState?.freezesMonth ?? streakState?.freezes_month ?? null;
+  let lastCountedDate = streakState?.lastCountedDate ?? streakState?.last_counted_date ?? null;
+  const currentMonth = currentDate.slice(0, 7);
+  if (freezesMonth !== currentMonth) {
+    freezesMonth = currentMonth;
+    freezesRemaining = MONTHLY_FREEZES;
+  }
+  let usedFreeze = false;
+  let streakBroken = false;
+  if (sessionsCompletedToday >= goalTarget) {
+    if (lastCountedDate === currentDate) {
+      return {
+        currentStreak,
+        longestStreak,
+        freezesRemaining,
+        freezesMonth,
+        lastCountedDate,
+        usedFreeze,
+        streakBroken
+      };
+    }
+    if (!lastCountedDate) {
+      currentStreak = 1;
+    } else {
+      const currentDays = parseDateDays(currentDate);
+      const lastDays = parseDateDays(lastCountedDate);
+      const diffDays = currentDays - lastDays;
+      if (diffDays === 1) {
+        currentStreak += 1;
+      } else if (diffDays > 1) {
+        const daysMissed = diffDays - 1;
+        if (daysMissed <= freezesRemaining) {
+          freezesRemaining -= daysMissed;
+          currentStreak += 1;
+          usedFreeze = true;
+        } else {
+          currentStreak = 1;
+          streakBroken = true;
+        }
+      }
+    }
+    if (currentStreak > longestStreak) {
+      longestStreak = currentStreak;
+    }
+    lastCountedDate = currentDate;
+  }
+  return {
+    currentStreak,
+    longestStreak,
+    freezesRemaining,
+    freezesMonth,
+    lastCountedDate,
+    usedFreeze,
+    streakBroken
+  };
+}
+function advanceCategoryMastery(currentLevel = 0, sessionScore = 0) {
+  const level = Number.isInteger(currentLevel) ? currentLevel : 0;
+  if (sessionScore >= 70) {
+    return Math.min(5, level + 1);
+  }
+  return level;
+}
+
 // storage/mobileDb.js
 var mobileDb_exports = {};
 __export(mobileDb_exports, {
   completeGameSession: () => completeGameSession,
   createQueuedGame: () => createQueuedGame,
   createQueuedGames: () => createQueuedGames,
+  exportDatabaseJson: () => exportDatabaseJson,
+  getCategoryMastery: () => getCategoryMastery,
+  getDailyStats: () => getDailyStats,
   getGameById: () => getGameById,
   getGameHistory: () => getGameHistory,
   getGameStatus: () => getGameStatus,
+  getHintLogs: () => getHintLogs,
   getMoveClassifications: () => getMoveClassifications,
   getProfileStats: () => getProfileStats,
+  getRecentDailyStats: () => getRecentDailyStats,
+  getSeedScore: () => getSeedScore,
   getSettings: () => getSettings,
+  getStreakState: () => getStreakState,
   getWeaknessTally: () => getWeaknessTally,
+  importDatabaseJson: () => importDatabaseJson,
   initDb: () => initDb,
+  recordDailySession: () => recordDailySession,
   resetUserData: () => resetUserData,
   saveGameSession: () => saveGameSession,
+  saveHintLog: () => saveHintLog,
   saveMoveClassification: () => saveMoveClassification,
+  saveSeedScore: () => saveSeedScore,
   saveWeaknessTags: () => saveWeaknessTags,
   setSetting: () => setSetting,
-  transitionGameStatus: () => transitionGameStatus
+  transitionGameStatus: () => transitionGameStatus,
+  updateCategoryMastery: () => updateCategoryMastery,
+  updateStreakState: () => updateStreakState
 });
 
 // node_modules/@capacitor-community/sqlite/dist/esm/index.js
@@ -6260,7 +7020,7 @@ PRAGMA foreign_keys = ON;
 CREATE TABLE IF NOT EXISTS games (
   id TEXT PRIMARY KEY,
   date TEXT,
-  mode TEXT CHECK(mode IN ('practice','imported')),
+  mode TEXT CHECK(mode IN ('practice','imported','freeplay')),
   status TEXT NOT NULL DEFAULT 'completed' CHECK(status IN ('queued','in_progress','completed','analyzed')),
   result TEXT,
   seeded_weakness TEXT NULL,
@@ -6273,7 +7033,12 @@ CREATE TABLE IF NOT EXISTS games (
   white_player TEXT NULL,
   black_player TEXT NULL,
   analysis_engine TEXT NULL,
-  analysis_depth INTEGER NULL
+  analysis_depth INTEGER NULL,
+  assistance_level TEXT NOT NULL DEFAULT 'none' CHECK(assistance_level IN ('none','preview','hints','full')),
+  hint_count INTEGER NOT NULL DEFAULT 0,
+  takeback_count INTEGER NOT NULL DEFAULT 0,
+  time_control TEXT NULL,
+  persona TEXT NULL
 );
 
 CREATE TABLE IF NOT EXISTS moves (
@@ -6345,14 +7110,68 @@ CREATE TABLE IF NOT EXISTS settings (
   value TEXT NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS seed_scores (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  game_id TEXT NOT NULL REFERENCES games(id),
+  accuracy_component REAL NOT NULL,
+  motif_component REAL NOT NULL,
+  hint_penalty REAL NOT NULL,
+  total_score REAL NOT NULL,
+  computed_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS daily_stats (
+  date TEXT PRIMARY KEY,
+  sessions_completed INTEGER NOT NULL DEFAULT 0,
+  goal_target INTEGER NOT NULL DEFAULT 3,
+  goal_met INTEGER NOT NULL DEFAULT 0 CHECK(goal_met IN (0,1)),
+  total_score REAL NOT NULL DEFAULT 0,
+  streak_day_counted INTEGER NOT NULL DEFAULT 0 CHECK(streak_day_counted IN (0,1))
+);
+
+CREATE TABLE IF NOT EXISTS streak_state (
+  id INTEGER PRIMARY KEY CHECK(id = 1),
+  current_streak INTEGER NOT NULL DEFAULT 0,
+  longest_streak INTEGER NOT NULL DEFAULT 0,
+  freezes_remaining INTEGER NOT NULL DEFAULT 2,
+  freezes_month TEXT NULL,
+  last_counted_date TEXT NULL
+);
+
+CREATE TABLE IF NOT EXISTS category_mastery (
+  category TEXT PRIMARY KEY CHECK(category IN (
+    'tactical',
+    'king_safety',
+    'pawn_structure',
+    'piece_activity',
+    'positional_judgment',
+    'endgame_technique',
+    'practical_time'
+  )),
+  mastery_level INTEGER NOT NULL DEFAULT 0 CHECK(mastery_level BETWEEN 0 AND 5),
+  last_practiced_at TEXT NULL,
+  decay_checked_at TEXT NULL
+);
+
+CREATE TABLE IF NOT EXISTS hint_logs (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  game_id TEXT NOT NULL REFERENCES games(id),
+  fen TEXT NOT NULL,
+  tier TEXT NOT NULL CHECK(tier IN ('warm','warmer','hot')),
+  detector TEXT NULL,
+  created_at TEXT NOT NULL
+);
+
 CREATE INDEX IF NOT EXISTS idx_games_seeded_weakness ON games(seeded_weakness);
 CREATE INDEX IF NOT EXISTS idx_moves_game_id ON moves(game_id);
 CREATE INDEX IF NOT EXISTS idx_weakness_tags_category ON weakness_tags(category);
 CREATE INDEX IF NOT EXISTS idx_move_classifications_move_id ON move_classifications(move_id);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_move_classifications_current
   ON move_classifications(move_id) WHERE is_current = 1;
+CREATE INDEX IF NOT EXISTS idx_seed_scores_game_id ON seed_scores(game_id);
+CREATE INDEX IF NOT EXISTS idx_hint_logs_game_id ON hint_logs(game_id);
 `;
-var ALLOWED_MODES = /* @__PURE__ */ new Set(["practice", "imported"]);
+var ALLOWED_MODES = /* @__PURE__ */ new Set(["practice", "imported", "freeplay"]);
 var SESSION_TRANSITIONS = Object.freeze({
   queued: "in_progress",
   in_progress: "completed",
@@ -6374,7 +7193,13 @@ var SETTING_DEFAULTS = Object.freeze({
   cat_avatar: "orange-tabby",
   chesscom_username: "lastautumnleaf1",
   engine_skill_level: "10",
-  theme: "cat"
+  theme: "cat",
+  daily_goal: "3",
+  rated_practice: "false",
+  preview_depth: "3",
+  freeplay_persona: "tabby",
+  freeplay_time_control: "5|0",
+  freeplay_color: "random"
 });
 var SETTING_KEYS = new Set(Object.keys(SETTING_DEFAULTS));
 function assertDb(db2) {
@@ -6517,6 +7342,75 @@ async function ensureWeaknessClassificationColumn(db2) {
     await db2.execute("ALTER TABLE weakness_tags ADD COLUMN classification_id INTEGER NULL REFERENCES move_classifications(id)");
   }
 }
+async function ensureM10ColumnsAndTables(db2) {
+  const gameRes = await db2.query("PRAGMA table_info(games)");
+  const gameColumns = new Set((gameRes.values || []).map((column) => column.name));
+  const gameAdditions = [
+    ["assistance_level", "TEXT NOT NULL DEFAULT 'none' CHECK(assistance_level IN ('none','preview','hints','full'))"],
+    ["hint_count", "INTEGER NOT NULL DEFAULT 0"],
+    ["takeback_count", "INTEGER NOT NULL DEFAULT 0"],
+    ["time_control", "TEXT NULL"],
+    ["persona", "TEXT NULL"]
+  ];
+  for (const [name, type] of gameAdditions) {
+    if (!gameColumns.has(name)) await db2.execute(`ALTER TABLE games ADD COLUMN ${name} ${type}`);
+  }
+  await db2.execute(`
+    CREATE TABLE IF NOT EXISTS settings (
+      key TEXT PRIMARY KEY,
+      value TEXT NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS seed_scores (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      game_id TEXT NOT NULL REFERENCES games(id),
+      accuracy_component REAL NOT NULL,
+      motif_component REAL NOT NULL,
+      hint_penalty REAL NOT NULL,
+      total_score REAL NOT NULL,
+      computed_at TEXT NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS daily_stats (
+      date TEXT PRIMARY KEY,
+      sessions_completed INTEGER NOT NULL DEFAULT 0,
+      goal_target INTEGER NOT NULL DEFAULT 3,
+      goal_met INTEGER NOT NULL DEFAULT 0 CHECK(goal_met IN (0,1)),
+      total_score REAL NOT NULL DEFAULT 0,
+      streak_day_counted INTEGER NOT NULL DEFAULT 0 CHECK(streak_day_counted IN (0,1))
+    );
+    CREATE TABLE IF NOT EXISTS streak_state (
+      id INTEGER PRIMARY KEY CHECK(id = 1),
+      current_streak INTEGER NOT NULL DEFAULT 0,
+      longest_streak INTEGER NOT NULL DEFAULT 0,
+      freezes_remaining INTEGER NOT NULL DEFAULT 2,
+      freezes_month TEXT NULL,
+      last_counted_date TEXT NULL
+    );
+    CREATE TABLE IF NOT EXISTS category_mastery (
+      category TEXT PRIMARY KEY CHECK(category IN (
+        'tactical',
+        'king_safety',
+        'pawn_structure',
+        'piece_activity',
+        'positional_judgment',
+        'endgame_technique',
+        'practical_time'
+      )),
+      mastery_level INTEGER NOT NULL DEFAULT 0 CHECK(mastery_level BETWEEN 0 AND 5),
+      last_practiced_at TEXT NULL,
+      decay_checked_at TEXT NULL
+    );
+    CREATE TABLE IF NOT EXISTS hint_logs (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      game_id TEXT NOT NULL REFERENCES games(id),
+      fen TEXT NOT NULL,
+      tier TEXT NOT NULL CHECK(tier IN ('warm','warmer','hot')),
+      detector TEXT NULL,
+      created_at TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_seed_scores_game_id ON seed_scores(game_id);
+    CREATE INDEX IF NOT EXISTS idx_hint_logs_game_id ON hint_logs(game_id);
+  `);
+}
 async function insertMoves(db2, summary) {
   const insertMoveSql = `
     INSERT INTO moves (
@@ -6572,6 +7466,7 @@ async function initDb(path) {
   await ensureMoveAnalysisColumns(db2);
   await ensureWeaknessClassificationColumn(db2);
   await ensureImportColumns(db2);
+  await ensureM10ColumnsAndTables(db2);
   return db2;
 }
 async function saveGameSession(db2, summary) {
@@ -6581,8 +7476,9 @@ async function saveGameSession(db2, summary) {
     INSERT INTO games (
       id, date, mode, status, result, seeded_weakness, seed_puzzle_id, start_fen, current_fen,
       import_source, external_game_id, player_color, white_player, black_player,
-      analysis_engine, analysis_depth
-    ) VALUES (?, ?, ?, 'completed', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      analysis_engine, analysis_depth,
+      assistance_level, hint_count, takeback_count, time_control, persona
+    ) VALUES (?, ?, ?, 'completed', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `;
   const date = summary.date ?? summary.moves[0]?.timestamp ?? (/* @__PURE__ */ new Date()).toISOString();
   return withTransaction(db2, async (transactionDb) => {
@@ -6601,7 +7497,12 @@ async function saveGameSession(db2, summary) {
       summary.white_player ?? null,
       summary.black_player ?? null,
       summary.analysis_engine ?? null,
-      summary.analysis_depth ?? null
+      summary.analysis_depth ?? null,
+      summary.assistance_level ?? "none",
+      summary.hint_count ?? 0,
+      summary.takeback_count ?? 0,
+      summary.time_control ?? null,
+      summary.persona ?? null
     ]);
     await insertMoves(transactionDb, summary);
     return summary.id;
@@ -6668,7 +7569,8 @@ async function completeGameSession(db2, summary) {
     const result = await transactionDb.run(`
       UPDATE games
       SET date = ?, mode = ?, status = 'completed', result = ?,
-          seeded_weakness = ?, seed_puzzle_id = ?, start_fen = ?, current_fen = ?
+          seeded_weakness = ?, seed_puzzle_id = ?, start_fen = ?, current_fen = ?,
+          assistance_level = ?, hint_count = ?, takeback_count = ?, time_control = ?, persona = ?
       WHERE id = ? AND status = 'in_progress'
     `, [
       date,
@@ -6678,6 +7580,11 @@ async function completeGameSession(db2, summary) {
       summary.seed_puzzle_id ?? null,
       summary.start_fen ?? null,
       summary.current_fen ?? null,
+      summary.assistance_level ?? "none",
+      summary.hint_count ?? 0,
+      summary.takeback_count ?? 0,
+      summary.time_control ?? null,
+      summary.persona ?? null,
       summary.id
     ]);
     if (Number(result.changes?.changes) !== 1) {
@@ -6702,7 +7609,8 @@ async function getGameHistory(db2, { limit, weaknessCategory } = {}) {
   const sql = `
     SELECT id, date, mode, status, result, seeded_weakness, seed_puzzle_id, start_fen, current_fen,
            import_source, external_game_id, player_color, white_player, black_player,
-           analysis_engine, analysis_depth
+           analysis_engine, analysis_depth,
+           assistance_level, hint_count, takeback_count, time_control, persona
     FROM games
     ${where}
     ORDER BY date DESC, rowid DESC
@@ -6738,7 +7646,8 @@ async function getGameById(db2, gameId) {
   const gameRes = await db2.query(`
     SELECT id, date, mode, status, result, seeded_weakness, seed_puzzle_id, start_fen, current_fen,
            import_source, external_game_id, player_color, white_player, black_player,
-           analysis_engine, analysis_depth
+           analysis_engine, analysis_depth,
+           assistance_level, hint_count, takeback_count, time_control, persona
     FROM games WHERE id = ?
   `, [gameId]);
   if (!gameRes.values || gameRes.values.length === 0) throw new Error(`Game not found: ${gameId}`);
@@ -6855,7 +7764,7 @@ async function getMoveClassifications(db2, moveId, { currentOnly = false } = {})
 }
 async function getWeaknessTally(db2, { sinceGameId } = {}) {
   assertDb(db2);
-  let where = "WHERE (wt.classification_id IS NULL OR mc.is_current = 1)";
+  let where = "WHERE (wt.classification_id IS NULL OR mc.is_current = 1) AND g.assistance_level = 'none'";
   let params = [];
   if (sinceGameId !== void 0) {
     if (typeof sinceGameId !== "string" || !sinceGameId) {
@@ -6904,7 +7813,7 @@ async function getProfileStats(db2, { recentLimit = 10 } = {}) {
   `);
   const totals = totalsRes.values?.[0] ?? { total_sessions: 0, total_moves: 0 };
   const recentRes = await db2.query(`
-    SELECT g.id, g.date, g.seeded_weakness, g.result, g.status, COUNT(m.id) AS move_count
+    SELECT g.id, g.date, g.seeded_weakness, g.result, g.status, g.assistance_level, g.persona, COUNT(m.id) AS move_count
     FROM games g
     LEFT JOIN moves m ON m.game_id = g.id
     WHERE g.status IN ('completed', 'analyzed')
@@ -6953,14 +7862,379 @@ async function setSetting(db2, key, value) {
   `, [key, normalized]);
   return normalized;
 }
+async function saveSeedScore(db2, { gameId, accuracyComponent, motifComponent, hintPenalty, totalScore, computedAt = (/* @__PURE__ */ new Date()).toISOString() }) {
+  assertDb(db2);
+  if (typeof gameId !== "string" || !gameId) throw new TypeError("gameId must be a non-empty string.");
+  return withTransaction(db2, async (transactionDb) => {
+    const res = await transactionDb.run(`
+      INSERT INTO seed_scores (game_id, accuracy_component, motif_component, hint_penalty, total_score, computed_at)
+      VALUES (?, ?, ?, ?, ?, ?)
+    `, [gameId, Number(accuracyComponent), Number(motifComponent), Number(hintPenalty), Number(totalScore), computedAt]);
+    return Number(res.changes?.lastId);
+  });
+}
+async function getSeedScore(db2, gameId) {
+  assertDb(db2);
+  if (typeof gameId !== "string" || !gameId) throw new TypeError("gameId must be a non-empty string.");
+  const res = await db2.query("SELECT * FROM seed_scores WHERE game_id = ? ORDER BY id DESC LIMIT 1", [gameId]);
+  return res.values && res.values.length > 0 ? { ...res.values[0] } : null;
+}
+async function saveHintLog(db2, { gameId, fen, tier, detector = null, createdAt = (/* @__PURE__ */ new Date()).toISOString() }) {
+  assertDb(db2);
+  if (typeof gameId !== "string" || !gameId) throw new TypeError("gameId must be a non-empty string.");
+  if (typeof fen !== "string" || !fen) throw new TypeError("fen must be a non-empty string.");
+  if (!["warm", "warmer", "hot"].includes(tier)) throw new RangeError(`Invalid tier: ${tier}`);
+  return withTransaction(db2, async (transactionDb) => {
+    const res = await transactionDb.run(`
+      INSERT INTO hint_logs (game_id, fen, tier, detector, created_at)
+      VALUES (?, ?, ?, ?, ?)
+    `, [gameId, fen, tier, detector, createdAt]);
+    return Number(res.changes?.lastId);
+  });
+}
+async function getHintLogs(db2, gameId) {
+  assertDb(db2);
+  if (typeof gameId !== "string" || !gameId) throw new TypeError("gameId must be a non-empty string.");
+  const res = await db2.query("SELECT * FROM hint_logs WHERE game_id = ? ORDER BY id ASC", [gameId]);
+  return (res.values || []).map((row) => ({ ...row }));
+}
+async function getDailyStats(db2, date) {
+  assertDb(db2);
+  if (typeof date !== "string" || !date) throw new TypeError("date must be a non-empty string (YYYY-MM-DD).");
+  const res = await db2.query("SELECT * FROM daily_stats WHERE date = ?", [date]);
+  if (!res.values || res.values.length === 0) return null;
+  const row = res.values[0];
+  return {
+    date: row.date,
+    sessionsCompleted: Number(row.sessions_completed),
+    goalTarget: Number(row.goal_target),
+    goalMet: Boolean(row.goal_met),
+    totalScore: Number(row.total_score),
+    streakDayCounted: Boolean(row.streak_day_counted)
+  };
+}
+async function getRecentDailyStats(db2, { limitDays = 30 } = {}) {
+  assertDb(db2);
+  const res = await db2.query("SELECT * FROM daily_stats ORDER BY date DESC LIMIT ?", [limitDays]);
+  return (res.values || []).map((row) => ({
+    date: row.date,
+    sessionsCompleted: Number(row.sessions_completed),
+    goalTarget: Number(row.goal_target),
+    goalMet: Boolean(row.goal_met),
+    totalScore: Number(row.total_score),
+    streakDayCounted: Boolean(row.streak_day_counted)
+  }));
+}
+async function recordDailySession(db2, { date, targetGoal = 3, sessionScore = 0, isCountedStreakDay = 0 }) {
+  assertDb(db2);
+  return withTransaction(db2, async (transactionDb) => {
+    const res = await transactionDb.query("SELECT * FROM daily_stats WHERE date = ?", [date]);
+    const existing = res.values && res.values.length > 0 ? res.values[0] : null;
+    if (!existing) {
+      const completed = 1;
+      const met = completed >= targetGoal ? 1 : 0;
+      await transactionDb.run(`
+        INSERT INTO daily_stats (date, sessions_completed, goal_target, goal_met, total_score, streak_day_counted)
+        VALUES (?, ?, ?, ?, ?, ?)
+      `, [date, completed, targetGoal, met, Number(sessionScore), isCountedStreakDay ? 1 : 0]);
+    } else {
+      const completed = Number(existing.sessions_completed) + 1;
+      const met = completed >= Number(existing.goal_target) ? 1 : 0;
+      const totalScore = Number(existing.total_score) + Number(sessionScore);
+      const streakCounted = existing.streak_day_counted || isCountedStreakDay ? 1 : 0;
+      await transactionDb.run(`
+        UPDATE daily_stats
+        SET sessions_completed = ?, goal_met = ?, total_score = ?, streak_day_counted = ?
+        WHERE date = ?
+      `, [completed, met, totalScore, streakCounted, date]);
+    }
+  });
+}
+async function getStreakState(db2) {
+  assertDb(db2);
+  const res = await db2.query("SELECT * FROM streak_state WHERE id = 1");
+  if (!res.values || res.values.length === 0) {
+    return {
+      currentStreak: 0,
+      longestStreak: 0,
+      freezesRemaining: 2,
+      freezesMonth: (/* @__PURE__ */ new Date()).toISOString().slice(0, 7),
+      lastCountedDate: null
+    };
+  }
+  const row = res.values[0];
+  return {
+    currentStreak: Number(row.current_streak),
+    longestStreak: Number(row.longest_streak),
+    freezesRemaining: Number(row.freezes_remaining),
+    freezesMonth: row.freezes_month,
+    lastCountedDate: row.last_counted_date
+  };
+}
+async function updateStreakState(db2, { currentStreak, longestStreak, freezesRemaining, freezesMonth, lastCountedDate }) {
+  assertDb(db2);
+  return withTransaction(db2, async (transactionDb) => {
+    await transactionDb.run(`
+      INSERT INTO streak_state (id, current_streak, longest_streak, freezes_remaining, freezes_month, last_counted_date)
+      VALUES (1, ?, ?, ?, ?, ?)
+      ON CONFLICT(id) DO UPDATE SET
+        current_streak = excluded.current_streak,
+        longest_streak = excluded.longest_streak,
+        freezes_remaining = excluded.freezes_remaining,
+        freezes_month = excluded.freezes_month,
+        last_counted_date = excluded.last_counted_date
+    `, [currentStreak, longestStreak, freezesRemaining, freezesMonth, lastCountedDate]);
+  });
+}
+async function getCategoryMastery(db2) {
+  assertDb(db2);
+  const res = await db2.query("SELECT * FROM category_mastery");
+  const masteryMap = {};
+  for (const cat of WEAKNESS_CATEGORIES2) {
+    masteryMap[cat] = {
+      category: cat,
+      masteryLevel: 0,
+      lastPracticedAt: null,
+      decayCheckedAt: null
+    };
+  }
+  for (const row of res.values || []) {
+    masteryMap[row.category] = {
+      category: row.category,
+      masteryLevel: Number(row.mastery_level),
+      lastPracticedAt: row.last_practiced_at,
+      decayCheckedAt: row.decay_checked_at
+    };
+  }
+  return masteryMap;
+}
+async function updateCategoryMastery(db2, { category, masteryLevel, lastPracticedAt, decayCheckedAt }) {
+  assertDb(db2);
+  if (!WEAKNESS_CATEGORIES2.has(category)) throw new RangeError(`Unknown weakness category: ${category}`);
+  return withTransaction(db2, async (transactionDb) => {
+    await transactionDb.run(`
+      INSERT INTO category_mastery (category, mastery_level, last_practiced_at, decay_checked_at)
+      VALUES (?, ?, ?, ?)
+      ON CONFLICT(category) DO UPDATE SET
+        mastery_level = excluded.mastery_level,
+        last_practiced_at = excluded.last_practiced_at,
+        decay_checked_at = excluded.decay_checked_at
+    `, [category, Math.max(0, Math.min(5, Math.trunc(masteryLevel))), lastPracticedAt ?? null, decayCheckedAt ?? null]);
+  });
+}
+async function clearAllUserData(db2) {
+  await db2.execute("DELETE FROM hint_logs;");
+  await db2.execute("DELETE FROM seed_scores;");
+  await db2.execute("DELETE FROM weakness_tags;");
+  await db2.execute("DELETE FROM move_classifications;");
+  await db2.execute("DELETE FROM moves;");
+  await db2.execute("DELETE FROM games;");
+  await db2.execute("DELETE FROM settings;");
+  await db2.execute("DELETE FROM daily_stats;");
+  await db2.execute("DELETE FROM streak_state;");
+  await db2.execute("DELETE FROM category_mastery;");
+}
 async function resetUserData(db2) {
   assertDb(db2);
   return withTransaction(db2, async (transactionDb) => {
-    await transactionDb.execute("DELETE FROM weakness_tags;");
-    await transactionDb.execute("DELETE FROM move_classifications;");
-    await transactionDb.execute("DELETE FROM moves;");
-    await transactionDb.execute("DELETE FROM games;");
-    await transactionDb.execute("DELETE FROM settings;");
+    await clearAllUserData(transactionDb);
+  });
+}
+async function exportDatabaseJson(db2) {
+  assertDb(db2);
+  const [
+    settings2,
+    games,
+    moves,
+    weakness_tags,
+    move_classifications,
+    seed_scores,
+    daily_stats,
+    streak_state,
+    category_mastery,
+    hint_logs
+  ] = await Promise.all([
+    db2.query("SELECT * FROM settings"),
+    db2.query("SELECT * FROM games"),
+    db2.query("SELECT * FROM moves"),
+    db2.query("SELECT * FROM weakness_tags"),
+    db2.query("SELECT * FROM move_classifications"),
+    db2.query("SELECT * FROM seed_scores"),
+    db2.query("SELECT * FROM daily_stats"),
+    db2.query("SELECT * FROM streak_state"),
+    db2.query("SELECT * FROM category_mastery"),
+    db2.query("SELECT * FROM hint_logs")
+  ]);
+  return {
+    version: 1,
+    exported_at: (/* @__PURE__ */ new Date()).toISOString(),
+    tables: {
+      settings: settings2.values || [],
+      games: games.values || [],
+      moves: moves.values || [],
+      weakness_tags: weakness_tags.values || [],
+      move_classifications: move_classifications.values || [],
+      seed_scores: seed_scores.values || [],
+      daily_stats: daily_stats.values || [],
+      streak_state: streak_state.values || [],
+      category_mastery: category_mastery.values || [],
+      hint_logs: hint_logs.values || []
+    }
+  };
+}
+async function importDatabaseJson(db2, payload) {
+  assertDb(db2);
+  if (!payload || typeof payload !== "object" || !payload.tables) {
+    throw new TypeError("Invalid backup payload.");
+  }
+  return withTransaction(db2, async (transactionDb) => {
+    await clearAllUserData(transactionDb);
+    const t = payload.tables;
+    if (Array.isArray(t.settings)) {
+      for (const r of t.settings) {
+        await transactionDb.run("INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)", [r.key, r.value]);
+      }
+    }
+    if (Array.isArray(t.games)) {
+      const stmt = `
+        INSERT INTO games (
+          id, date, mode, status, result, seeded_weakness, seed_puzzle_id, start_fen, current_fen,
+          import_source, external_game_id, player_color, white_player, black_player,
+          analysis_engine, analysis_depth, assistance_level, hint_count, takeback_count, time_control, persona
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `;
+      for (const r of t.games) {
+        await transactionDb.run(stmt, [
+          r.id,
+          r.date,
+          r.mode,
+          r.status,
+          r.result,
+          r.seeded_weakness,
+          r.seed_puzzle_id,
+          r.start_fen,
+          r.current_fen,
+          r.import_source,
+          r.external_game_id,
+          r.player_color,
+          r.white_player,
+          r.black_player,
+          r.analysis_engine,
+          r.analysis_depth,
+          r.assistance_level ?? "none",
+          r.hint_count ?? 0,
+          r.takeback_count ?? 0,
+          r.time_control ?? null,
+          r.persona ?? null
+        ]);
+      }
+    }
+    if (Array.isArray(t.moves)) {
+      const stmt = `
+        INSERT INTO moves (
+          id, game_id, ply_number, fen_before, move_played, eval_cp_before, eval_cp_after,
+          best_move, principal_variation, is_mate_score, stockfish_response, timestamp, timestamp_source
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `;
+      for (const r of t.moves) {
+        await transactionDb.run(stmt, [
+          r.id,
+          r.game_id,
+          r.ply_number,
+          r.fen_before,
+          r.move_played,
+          r.eval_cp_before,
+          r.eval_cp_after,
+          r.best_move,
+          r.principal_variation,
+          r.is_mate_score,
+          r.stockfish_response,
+          r.timestamp,
+          r.timestamp_source ?? "live_recorded"
+        ]);
+      }
+    }
+    if (Array.isArray(t.move_classifications)) {
+      const stmt = `
+        INSERT INTO move_classifications (
+          id, move_id, status, category, severity, rationale, error, attempts,
+          model_used, backend, prompt_version, prompt_hash, analysis_timestamp, is_current
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `;
+      for (const r of t.move_classifications) {
+        await transactionDb.run(stmt, [
+          r.id,
+          r.move_id,
+          r.status,
+          r.category,
+          r.severity,
+          r.rationale,
+          r.error,
+          r.attempts,
+          r.model_used,
+          r.backend,
+          r.prompt_version,
+          r.prompt_hash,
+          r.analysis_timestamp,
+          r.is_current
+        ]);
+      }
+    }
+    if (Array.isArray(t.weakness_tags)) {
+      const stmt = `
+        INSERT INTO weakness_tags (id, move_id, category, severity, source, classification_id)
+        VALUES (?, ?, ?, ?, ?, ?)
+      `;
+      for (const r of t.weakness_tags) {
+        await transactionDb.run(stmt, [r.id, r.move_id, r.category, r.severity, r.source, r.classification_id]);
+      }
+    }
+    if (Array.isArray(t.seed_scores)) {
+      const stmt = `
+        INSERT INTO seed_scores (id, game_id, accuracy_component, motif_component, hint_penalty, total_score, computed_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+      `;
+      for (const r of t.seed_scores) {
+        await transactionDb.run(stmt, [r.id, r.game_id, r.accuracy_component, r.motif_component, r.hint_penalty, r.total_score, r.computed_at]);
+      }
+    }
+    if (Array.isArray(t.daily_stats)) {
+      const stmt = `
+        INSERT INTO daily_stats (date, sessions_completed, goal_target, goal_met, total_score, streak_day_counted)
+        VALUES (?, ?, ?, ?, ?, ?)
+      `;
+      for (const r of t.daily_stats) {
+        await transactionDb.run(stmt, [r.date, r.sessions_completed, r.goal_target, r.goal_met, r.total_score, r.streak_day_counted]);
+      }
+    }
+    if (Array.isArray(t.streak_state)) {
+      const stmt = `
+        INSERT INTO streak_state (id, current_streak, longest_streak, freezes_remaining, freezes_month, last_counted_date)
+        VALUES (?, ?, ?, ?, ?, ?)
+      `;
+      for (const r of t.streak_state) {
+        await transactionDb.run(stmt, [r.id, r.current_streak, r.longest_streak, r.freezes_remaining, r.freezes_month, r.last_counted_date]);
+      }
+    }
+    if (Array.isArray(t.category_mastery)) {
+      const stmt = `
+        INSERT INTO category_mastery (category, mastery_level, last_practiced_at, decay_checked_at)
+        VALUES (?, ?, ?, ?)
+      `;
+      for (const r of t.category_mastery) {
+        await transactionDb.run(stmt, [r.category, r.mastery_level, r.last_practiced_at, r.decay_checked_at]);
+      }
+    }
+    if (Array.isArray(t.hint_logs)) {
+      const stmt = `
+        INSERT INTO hint_logs (id, game_id, fen, tier, detector, created_at)
+        VALUES (?, ?, ?, ?, ?, ?)
+      `;
+      for (const r of t.hint_logs) {
+        await transactionDb.run(stmt, [r.id, r.game_id, r.fen, r.tier, r.detector, r.created_at]);
+      }
+    }
+    return true;
   });
 }
 
@@ -7363,6 +8637,36 @@ function weaknessBars(tally) {
     return `<div class="weakness-row"><div class="weakness-label"><span>${LABELS[category]}</span><strong>${count}</strong></div><div class="bar-track"><span class="bar-fill category-${category}" style="width:${width}%"></span></div></div>`;
   }).join("")}</div>`;
 }
+function masteryCard(mastery = {}) {
+  return `<div class="mastery-grid">${MASTERY_CATEGORIES.map((cat) => {
+    const level = mastery[cat]?.masteryLevel ?? 0;
+    const stars = "\u{1F43E}".repeat(level) + "\u26AA".repeat(5 - level);
+    return `<div class="mastery-row"><span>${LABELS[cat] || cat}</span><span class="mastery-paws">${stars} (Lvl ${level}/5)</span></div>`;
+  }).join("")}</div>`;
+}
+function streakCard(streakState = {}, todayStats = {}, dailyGoal = 3) {
+  const current = streakState?.currentStreak ?? 0;
+  const longest = streakState?.longestStreak ?? 0;
+  const freezes = streakState?.freezesRemaining ?? 2;
+  const completedToday = todayStats?.sessionsCompleted ?? 0;
+  const goalTarget = Number(dailyGoal) || 3;
+  const progressPercent = Math.min(100, Math.round(completedToday / goalTarget * 100));
+  return `
+    <div class="streak-card-body">
+      <div class="streak-metrics">
+        <div class="metric-item"><strong>\u{1F525} ${current}</strong><span>Current Streak</span></div>
+        <div class="metric-item"><strong>\u{1F3C6} ${longest}</strong><span>Best Streak</span></div>
+        <div class="metric-item"><strong>\u2744\uFE0F ${freezes}/2</strong><span>Freezes Left</span></div>
+      </div>
+      <div class="daily-progress-wrap">
+        <div class="daily-progress-header">
+          <span>Today's Hunt Goal</span>
+          <strong>${completedToday} / ${goalTarget} Sessions</strong>
+        </div>
+        <div class="bar-track"><span class="bar-fill streak-fill" style="width:${progressPercent}%"></span></div>
+      </div>
+    </div>`;
+}
 function recentSessions(sessions) {
   if (!sessions.length) {
     return '<p class="empty-state">No sessions yet \u2014 tap Pounce on Weakness to start your first hunt.</p>';
@@ -7375,11 +8679,25 @@ function renderProfile({ container, stats, settings: settings2, corpusStatus: co
   const avatarOptions = AVATARS.map(([value, label]) => `<option value="${value}"${settings2.cat_avatar === value ? " selected" : ""}>${label}</option>`).join("");
   const enoughProgress = stats.totalSessions >= 3;
   const activeTheme = getTheme(settings2.theme);
+  const personaOptions = Object.values(PERSONAS).map(
+    (p) => `<option value="${p.id}"${settings2.freeplay_persona === p.id ? " selected" : ""}>${p.avatar} ${p.name} (~${p.targetElo} Elo)</option>`
+  ).join("");
+  const timeControlOptions = STANDARD_TIME_CONTROLS.map(
+    (tc) => `<option value="${tc.id}"${settings2.freeplay_time_control === tc.id ? " selected" : ""}>${tc.name}</option>`
+  ).join("");
   container.innerHTML = `
     <section class="profile-hero">
       <span class="profile-avatar">${activeTheme.emoji}</span>
       <div><h2>${escapeHtml(settings2.display_name || "Your Cat Analyst Profile")}</h2><p>${stats.totalSessions ? `${stats.totalSessions} hunts completed` : "Your training story starts here."}</p></div>
     </section>
+
+    <section class="profile-card" aria-labelledby="streak-heading">
+      <h2 id="streak-heading">Daily Hunt Streak & Mastery</h2>
+      ${streakCard(stats.streakState, stats.todayStats, settings2.daily_goal)}
+      <h3>Category Mastery (0 - 5 Paws)</h3>
+      ${masteryCard(stats.categoryMastery)}
+    </section>
+
     <section class="profile-card" aria-labelledby="stats-heading">
       <h2 id="stats-heading">Stats</h2>
       <div class="stat-grid"><div><strong>${stats.totalSessions}</strong><span>Sessions</span></div><div><strong>${stats.totalMoves}</strong><span>Moves logged</span></div></div>
@@ -7390,16 +8708,31 @@ function renderProfile({ container, stats, settings: settings2, corpusStatus: co
       <h3>Progress over time</h3>
       ${enoughProgress ? '<p class="progress-ready">Progress tracking is unlocked. More analyzed sessions will make trends clearer.</p>' : '<p class="empty-state">Complete at least 3 sessions to unlock progress-over-time insights.</p>'}
     </section>
+
     <section class="profile-card" aria-labelledby="settings-heading">
-      <h2 id="settings-heading">Settings</h2>
+      <h2 id="settings-heading">Settings & Preferences</h2>
       <form id="settings-form" class="settings-form">
         <label>Display name<input name="display_name" maxlength="40" value="${escapeHtml(settings2.display_name)}" autocomplete="name"></label>
         <label>Cat avatar<select name="cat_avatar">${avatarOptions}</select></label>
         <label>chess.com username<input name="chesscom_username" maxlength="50" value="${escapeHtml(settings2.chesscom_username)}" autocomplete="off"></label>
+        <label>Daily training goal (sessions)<input name="daily_goal" type="number" min="1" max="20" value="${escapeHtml(settings2.daily_goal ?? "3")}"></label>
+        <label>Freeplay default persona<select name="freeplay_persona">${personaOptions}</select></label>
+        <label>Freeplay time control<select name="freeplay_time_control">${timeControlOptions}</select></label>
         <label>Engine difficulty <span id="engine-difficulty-label">${engineDifficultyLabel(level)}</span><input name="engine_skill_level" type="range" min="0" max="20" step="1" value="${level}"><output id="engine-level-output">${level}</output></label>
         <label>Animal theme<select name="theme">${themeOptions(settings2.theme)}</select></label>
         <button class="btn btn-primary" type="submit">Save settings</button>
       </form>
+
+      <div class="corpus-status">
+        <h3>Database Backup & Restore</h3>
+        <p>Export all sessions and settings to JSON, or restore from a backup file.</p>
+        <div class="backup-actions">
+          <button id="btn-db-export" class="btn btn-secondary" type="button">\u{1F4E4} Export Database (JSON)</button>
+          <button id="btn-db-import" class="btn btn-secondary" type="button">\u{1F4E5} Import Database</button>
+          <input type="file" id="db-import-file" accept=".json" class="hidden">
+        </div>
+      </div>
+
       <div class="corpus-status"><h3>Puzzle corpus</h3><p>${corpusStatus2.populated ? `Version ${escapeHtml(corpusStatus2.version ?? "unknown")} \u2022 ${corpusStatus2.puzzleCount.toLocaleString()} puzzles` : "Not downloaded yet"}</p><button id="btn-corpus-update" class="btn btn-secondary" type="button">${corpusStatus2.populated ? "Re-download corpus" : "Download corpus"}</button></div>
       <div class="danger-zone"><h3>Reset all data</h3><p>Deletes your sessions, move history, weakness data, and settings. The downloaded puzzle corpus is kept.</p><button id="btn-reset-data" class="btn btn-danger" type="button">Reset all training data</button></div>
     </section>`;
@@ -7508,16 +8841,25 @@ var targetNameEl = el("target-name");
 var targetDescEl = el("target-desc");
 var queueIndicatorEl = el("target-queue-indicator");
 var sessionBadgeEl = el("session-badge");
+var opponentAvatarEl = el("opponent-avatar");
+var opponentNameEl = el("opponent-name");
+var opponentClockEl = el("opponent-clock");
+var userClockEl = el("user-clock");
+var evalBarFillEl = el("eval-bar-fill");
 var db = null;
 var orchestrator = null;
 var engineClient = null;
 var chess = new Chess();
 var activeSession = null;
+var sessionClock = null;
+var clockIntervalHandle = null;
 var selectedSquare = null;
-var boardFlipped = true;
+var boardFlipped = false;
 var isEngineThinking = false;
 var settings = null;
 var corpusStatus = { populated: false, puzzleCount: 0, version: null };
+var currentHintTier = 0;
+var pendingBlunderMove = null;
 var chessComView = createChessComView({
   inAppBrowser: InAppBrowser,
   themeCss: chesscom_theme_default,
@@ -7566,16 +8908,27 @@ async function initEngine() {
 }
 function handleInfoLine(line) {
   if (typeof line !== "string" || !line.startsWith("info ")) return;
-  const cp = line.match(/\bscore\s+cp\s+(-?\d+)/);
-  const mate = line.match(/\bscore\s+mate\s+(-?\d+)/);
-  const pv = line.match(/\bpv\s+(.+)$/);
-  if (mate && engineEvalEl) {
-    engineEvalEl.textContent = `Eval: M${mate[1]}`;
-  } else if (cp && engineEvalEl) {
-    const score = (parseInt(cp[1], 10) / 100).toFixed(2);
-    engineEvalEl.textContent = `Eval: ${Number(score) > 0 ? "+" : ""}${score}`;
+  const cpMatch = line.match(/\bscore\s+cp\s+(-?\d+)/);
+  const mateMatch = line.match(/\bscore\s+mate\s+(-?\d+)/);
+  const pvMatch = line.match(/\bpv\s+(.+)$/);
+  let evalCp = 0;
+  let isMate = false;
+  if (mateMatch) {
+    isMate = true;
+    evalCp = parseInt(mateMatch[1], 10) > 0 ? 1e5 : -1e5;
+  } else if (cpMatch) {
+    evalCp = parseInt(cpMatch[1], 10);
   }
-  if (pv && pvMovesEl) pvMovesEl.textContent = pv[1];
+  const evalState = computeEvalBarState({ evalCp, isMateScore: isMate });
+  if (engineEvalEl) {
+    engineEvalEl.textContent = `Eval: ${evalState.label}`;
+  }
+  if (evalBarFillEl) {
+    evalBarFillEl.style.height = `${evalState.whiteHeightPercent}%`;
+  }
+  if (pvMatch && pvMovesEl) {
+    pvMovesEl.textContent = pvMatch[1];
+  }
 }
 function withTimeout(promise, ms) {
   let handle;
@@ -7583,6 +8936,43 @@ function withTimeout(promise, ms) {
     handle = setTimeout(() => resolve(null), ms);
   });
   return Promise.race([promise, timeout]).finally(() => clearTimeout(handle));
+}
+function startClockTimer() {
+  stopClockTimer();
+  if (!sessionClock) return;
+  opponentClockEl?.classList.remove("hidden");
+  userClockEl?.classList.remove("hidden");
+  clockIntervalHandle = setInterval(() => {
+    if (!sessionClock) return;
+    const time = sessionClock.getTimeRemaining();
+    const isPlayerWhite = (activeSession?.playerColor ?? "white") === "white";
+    const playerTime = isPlayerWhite ? time.whiteMs : time.blackMs;
+    const oppTime = isPlayerWhite ? time.blackMs : time.whiteMs;
+    if (userClockEl) {
+      userClockEl.textContent = formatClockTime(playerTime);
+      userClockEl.classList.toggle("low-time", playerTime <= 3e4 && playerTime > 0);
+    }
+    if (opponentClockEl) {
+      opponentClockEl.textContent = formatClockTime(oppTime);
+      opponentClockEl.classList.toggle("low-time", oppTime <= 3e4 && oppTime > 0);
+    }
+    if (sessionClock.isFlagFallen()) {
+      stopClockTimer();
+      const flag = sessionClock.isFlagFallen();
+      const playerWon = isPlayerWhite && flag === "black" || !isPlayerWhite && flag === "white";
+      setMoveStatus(playerWon ? "Opponent ran out of time! You win! \u{1F3C6}" : "Time ran out! Game over. \u23F1\uFE0F");
+      if (activeSession) {
+        activeSession.result = playerWon ? isPlayerWhite ? "1-0" : "0-1" : isPlayerWhite ? "0-1" : "1-0";
+        void showScoreSummary(activeSession);
+      }
+    }
+  }, 100);
+}
+function stopClockTimer() {
+  if (clockIntervalHandle) {
+    clearInterval(clockIntervalHandle);
+    clockIntervalHandle = null;
+  }
 }
 function squareName(fileIdx, rankIdx) {
   return `${String.fromCharCode(97 + fileIdx)}${8 - rankIdx}`;
@@ -7600,7 +8990,7 @@ function renderBoard() {
   const board = chess.board();
   const targets = selectedSquare ? legalTargetsFrom(selectedSquare) : [];
   const inCheck = typeof chess.inCheck === "function" ? chess.inCheck() : false;
-  const rankOrder = boardFlipped ? [...Array(8).keys()].reverse() : [...Array(8).keys()];
+  const rankOrder = boardFlipped ? [...Array(8).keys()] : [...Array(8).keys()].reverse();
   const fileOrder = boardFlipped ? [...Array(8).keys()].reverse() : [...Array(8).keys()];
   for (const r of rankOrder) {
     for (const f of fileOrder) {
@@ -7651,8 +9041,8 @@ function updateTurnUI() {
     turnIndicatorEl.textContent = reason;
     return;
   }
-  const mine = chess.turn() === (boardFlipped ? "b" : "w");
-  turnIndicatorEl.textContent = mine ? "Your turn to pounce!" : "Stockfish is thinking\u2026";
+  const isPlayerTurn = chess.turn() === (activeSession?.playerColor === "black" ? "b" : "w");
+  turnIndicatorEl.textContent = isPlayerTurn ? "Your turn to pounce!" : "Stockfish is thinking\u2026";
 }
 function appendLog(ply, san) {
   if (!moveLogEl) return;
@@ -7666,15 +9056,17 @@ function appendLog(ply, san) {
 }
 async function handleSquareClick(square) {
   if (!activeSession) {
-    setMoveStatus('Start a session first \u2014 tap "Pounce on Weakness".');
+    setMoveStatus('Start a session first \u2014 tap "Pounce on Weakness" or "Free Play".');
     return;
   }
   if (isEngineThinking) return;
   if (chess.isGameOver?.()) return;
+  const isPlayerTurn = chess.turn() === (activeSession.playerColor === "black" ? "b" : "w");
+  if (!isPlayerTurn) return;
   const piece = chess.get(square);
   if (selectedSquare) {
     if (legalTargetsFrom(selectedSquare).includes(square)) {
-      await playPlayerMove(selectedSquare, square);
+      await initiatePlayerMove(selectedSquare, square);
       return;
     }
     selectedSquare = piece && piece.color === chess.turn() ? square : null;
@@ -7687,11 +9079,34 @@ async function handleSquareClick(square) {
     renderBoard();
   }
 }
-async function playPlayerMove(from, to) {
+async function initiatePlayerMove(from, to) {
+  const uci = from + to;
+  const fenBefore = chess.fen();
+  if (engineClient) {
+    try {
+      const blunderCheck = await checkBlunderCandidate(fenBefore, uci, engineClient);
+      if (blunderCheck?.isBlunder) {
+        pendingBlunderMove = { from, to, uci };
+        const warningEl = el("blunder-warning-text");
+        if (warningEl && blunderCheck.message) {
+          warningEl.textContent = blunderCheck.message;
+        }
+        el("blunder-modal")?.classList.remove("hidden");
+        selectedSquare = null;
+        renderBoard();
+        return;
+      }
+    } catch (err) {
+      console.warn("Blunder check non-fatal error:", err);
+    }
+  }
+  await executePlayerMove(from, to);
+}
+async function executePlayerMove(from, to) {
   let move = null;
   try {
     move = chess.move({ from, to, promotion: "q" });
-  } catch (err) {
+  } catch {
     move = null;
   }
   if (!move) {
@@ -7703,9 +9118,13 @@ async function playPlayerMove(from, to) {
   selectedSquare = null;
   appendLog(Math.ceil(chess.history().length / 2), move.san);
   renderBoard();
+  if (sessionClock) {
+    if (!sessionClock.isRunning) sessionClock.start(chess.turn() === "b" ? "black" : "white");
+    else sessionClock.switchTurn();
+  }
   const uci = move.from + move.to + (move.promotion ?? "");
   isEngineThinking = true;
-  setMoveStatus("Orange Cat Stockfish is calculating\u2026");
+  setMoveStatus(`${activeSession.persona ? resolvePersona(activeSession.persona).name : "Stockfish"} is calculating\u2026`);
   updateTurnUI();
   let result = null;
   try {
@@ -7734,20 +9153,191 @@ async function playPlayerMove(from, to) {
       console.error("Could not apply engine move locally", err);
     }
   }
+  if (sessionClock && sessionClock.isRunning) {
+    sessionClock.switchTurn();
+  }
   if (result.currentFen && chess.fen() !== result.currentFen) {
     chess = new Chess(result.currentFen);
   }
-  setMoveStatus(chess.isGameOver?.() ? 'Game over \u2014 tap "End Session" to save.' : "Your move.");
+  if (chess.isGameOver?.()) {
+    stopClockTimer();
+    let res = "1/2-1/2";
+    if (chess.isCheckmate?.()) {
+      res = chess.turn() === "w" ? "0-1" : "1-0";
+    }
+    activeSession.result = res;
+    setMoveStatus("Game over! Complete session to view your score.");
+    void showScoreSummary(activeSession);
+  } else {
+    setMoveStatus("Your move.");
+  }
   renderBoard();
+}
+async function openHintModal() {
+  if (!activeSession) {
+    setMoveStatus("Start a session first to request hints.");
+    return;
+  }
+  currentHintTier = 1;
+  el("hint-tier-2")?.classList.add("hidden");
+  el("hint-tier-3")?.classList.add("hidden");
+  const moreBtn = el("btn-hint-more");
+  if (moreBtn) {
+    moreBtn.disabled = false;
+    moreBtn.textContent = "\u{1F43E} Need More Help?";
+  }
+  const t1El = el("hint-text-1");
+  if (t1El) t1El.textContent = "Calculating board awareness\u2026";
+  el("hint-modal")?.classList.remove("hidden");
+  try {
+    const hint1 = await generateHint(chess.fen(), "warm", engineClient);
+    if (t1El) t1El.textContent = hint1.message;
+    activeSession.recordHint("warm", hint1.type);
+  } catch (err) {
+    if (t1El) t1El.textContent = "Look for undefended pieces and active squares.";
+  }
+}
+async function requestNextHintTier() {
+  if (!activeSession) return;
+  if (currentHintTier === 1) {
+    currentHintTier = 2;
+    el("hint-tier-2")?.classList.remove("hidden");
+    const t2El = el("hint-text-2");
+    if (t2El) t2El.textContent = "Searching opponent threats\u2026";
+    try {
+      const hint2 = await generateHint(chess.fen(), "warmer", engineClient);
+      if (t2El) t2El.textContent = hint2.message;
+      activeSession.recordHint("warmer", hint2.type);
+    } catch {
+      if (t2El) t2El.textContent = "Watch out for opponent tactical counters.";
+    }
+  } else if (currentHintTier === 2) {
+    currentHintTier = 3;
+    el("hint-tier-3")?.classList.remove("hidden");
+    const t3El = el("hint-text-3");
+    if (t3El) t3El.textContent = "Finding best piece to move\u2026";
+    const moreBtn = el("btn-hint-more");
+    if (moreBtn) {
+      moreBtn.disabled = true;
+      moreBtn.textContent = "Max Hint Reached";
+    }
+    try {
+      const hint3 = await generateHint(chess.fen(), "hot", engineClient);
+      if (t3El) t3El.textContent = hint3.message;
+      activeSession.recordHint("hot", hint3.type);
+    } catch {
+      if (t3El) t3El.textContent = "Look for the most forcing move.";
+    }
+  }
+}
+function handleTakeback() {
+  if (!activeSession || activeSession.logs.length === 0) {
+    setMoveStatus("No moves to take back.");
+    return;
+  }
+  const tb = activeSession.takeback();
+  chess = new Chess(tb.revertedFen);
+  selectedSquare = null;
+  renderBoard();
+  if (moveLogEl) {
+    moveLogEl.innerHTML = '<div class="empty-log-message">Move taken back. Try another line! \u{1F43E}</div>';
+    for (const log of activeSession.logs) {
+      appendLog(log.ply_number, log.move_played);
+    }
+  }
+  setMoveStatus(`Takeback applied (${tb.takebackCount} total). Assistance level: ${activeSession.computeAssistanceLevel()}.`);
+}
+async function handleOfferDraw() {
+  if (!activeSession) return;
+  setMoveStatus("Offering draw to Stockfish\u2026");
+  const offer = await activeSession.offerDraw();
+  if (offer.accepted) {
+    stopClockTimer();
+    setMoveStatus("Draw agreed! (Evaluation is within +/- 0.75 pawns). \u{1F91D}");
+    void showScoreSummary(activeSession);
+  } else {
+    setMoveStatus("Draw declined. Stockfish wants to play on! \u2694\uFE0F");
+  }
+}
+function handleResign() {
+  if (!activeSession) return;
+  if (!window.confirm("Resign the game?")) return;
+  stopClockTimer();
+  activeSession.resign();
+  setMoveStatus("You resigned. Game over.");
+  void showScoreSummary(activeSession);
+}
+async function showScoreSummary(session) {
+  const summary = session.summary();
+  const score = calculateSeedScore(summary);
+  const gradeEl = el("score-grade");
+  const totalEl = el("score-total");
+  const accEl = el("score-accuracy");
+  const motifEl = el("score-motif");
+  const hintsEl = el("score-hints");
+  const assistEl = el("score-assistance");
+  if (gradeEl) gradeEl.textContent = score.grade;
+  if (totalEl) totalEl.textContent = score.totalScore;
+  if (accEl) accEl.textContent = score.accuracyComponent.toFixed(1);
+  if (motifEl) motifEl.textContent = score.motifComponent.toFixed(1);
+  if (hintsEl) hintsEl.textContent = `-${score.hintPenalty.toFixed(1)}`;
+  if (assistEl) assistEl.textContent = summary.assistance_level.toUpperCase();
+  el("score-modal")?.classList.remove("hidden");
+  try {
+    await saveSeedScore(db, {
+      gameId: session.gameId,
+      accuracyComponent: score.accuracyComponent,
+      motifComponent: score.motifComponent,
+      hintPenalty: score.hintPenalty,
+      totalScore: score.totalScore,
+      letterGrade: score.grade,
+      assistanceLevel: summary.assistance_level
+    });
+    await recordDailySession(db, session.gameId);
+    const today = (/* @__PURE__ */ new Date()).toISOString().slice(0, 10);
+    const todayStats = await getDailyStats(db, today);
+    const streakState = await getStreakState(db);
+    const updatedStreak = processDailyStreakUpdate({
+      streakState,
+      currentDate: today,
+      sessionsCompletedToday: todayStats?.sessionsCompleted ?? 1,
+      goalTarget: Number(settings?.daily_goal) || 3
+    });
+    await updateStreakState(db, updatedStreak);
+    if (session.seededWeakness) {
+      const currentMastery = await getCategoryMastery(db);
+      const curLvl = currentMastery[session.seededWeakness]?.masteryLevel ?? 0;
+      const nextLvl = advanceCategoryMastery(curLvl, score.totalScore);
+      await updateCategoryMastery(db, {
+        category: session.seededWeakness,
+        masteryLevel: nextLvl,
+        lastPracticedAt: (/* @__PURE__ */ new Date()).toISOString()
+      });
+    }
+  } catch (err) {
+    console.warn("Could not record score/streak in SQLite:", err);
+  }
 }
 function syncSessionToBoard(session) {
   activeSession = session;
   const fen = session?.currentFen ?? session?.startFen;
   chess = fen ? new Chess(fen) : new Chess();
-  boardFlipped = chess.turn() === "b";
+  boardFlipped = (session?.playerColor ?? "white") === "black";
   selectedSquare = null;
+  if (session?.timeControl && session.timeControl !== "none") {
+    sessionClock = new ChessClock(session.timeControl);
+    startClockTimer();
+  } else {
+    sessionClock = null;
+    stopClockTimer();
+    opponentClockEl?.classList.add("hidden");
+    userClockEl?.classList.add("hidden");
+  }
+  const personaObj = resolvePersona(session?.persona);
+  if (opponentAvatarEl) opponentAvatarEl.textContent = personaObj.avatar;
+  if (opponentNameEl) opponentNameEl.textContent = `${personaObj.name} (~${personaObj.targetElo} Elo)`;
   if (moveLogEl) {
-    moveLogEl.innerHTML = '<div class="empty-log-message">Motif-ready position loaded. Your move!</div>';
+    moveLogEl.innerHTML = '<div class="empty-log-message">Position loaded. Your move! \u{1F43E}</div>';
   }
   renderBoard();
 }
@@ -7764,9 +9354,32 @@ async function startTargetedSession() {
     if (queueIndicatorEl) queueIndicatorEl.textContent = `Seed 1 of ${focus.queued.length}`;
     if (sessionBadgeEl) sessionBadgeEl.textContent = "Practice Mode";
     syncSessionToBoard(focus.activeSession);
-    setMoveStatus("Session started. Pounce!");
+    setMoveStatus("Targeted hunt started. Pounce!");
   } catch (err) {
     setFatal("Could not start a session.", err);
+  }
+}
+async function startFreeplaySession() {
+  try {
+    const persona = settings?.freeplay_persona || "tabby";
+    const timeControl = settings?.freeplay_time_control || "3|2";
+    const playerColor = "white";
+    const session = new PracticeSession({
+      mode: "freeplay",
+      persona,
+      timeControl,
+      playerColor,
+      engine: engineClient,
+      gameId: `freeplay-${Date.now()}`
+    });
+    if (targetNameEl) targetNameEl.textContent = "Free Play vs Stockfish";
+    if (targetDescEl) targetDescEl.textContent = `Persona: ${resolvePersona(persona).name} \u2022 Clock: ${timeControl}`;
+    if (queueIndicatorEl) queueIndicatorEl.textContent = "Unseeded";
+    if (sessionBadgeEl) sessionBadgeEl.textContent = "Free Play \u2694\uFE0F";
+    syncSessionToBoard(session);
+    setMoveStatus("Free play game started! Make your move.");
+  } catch (err) {
+    setFatal("Could not start free play session.", err);
   }
 }
 async function startNextQueued() {
@@ -7789,8 +9402,10 @@ async function completeSession() {
     return;
   }
   if (!window.confirm("End this session and save it?")) return;
+  stopClockTimer();
   try {
     await orchestrator.completeSession(activeSession);
+    await showScoreSummary(activeSession);
     activeSession = null;
     setMoveStatus("Session saved to your history.");
     if (sessionBadgeEl) sessionBadgeEl.textContent = "Saved";
@@ -7863,6 +9478,10 @@ async function refreshProfile() {
   settings = await getSettings(db);
   await activateTheme(settings.theme);
   const stats = await getProfileStats(db);
+  const today = (/* @__PURE__ */ new Date()).toISOString().slice(0, 10);
+  stats.todayStats = await getDailyStats(db, today);
+  stats.streakState = await getStreakState(db);
+  stats.categoryMastery = await getCategoryMastery(db);
   corpusStatus = await getCorpusStatus(db);
   let focus = null;
   if (orchestrator && corpusStatus.populated) {
@@ -7884,7 +9503,7 @@ async function refreshProfile() {
   el("settings-form")?.addEventListener("submit", async (event) => {
     event.preventDefault();
     const form = new FormData(event.currentTarget);
-    for (const key of ["display_name", "cat_avatar", "chesscom_username", "engine_skill_level", "theme"]) {
+    for (const key of ["display_name", "cat_avatar", "chesscom_username", "engine_skill_level", "theme", "daily_goal", "freeplay_persona", "freeplay_time_control"]) {
       await setSetting(db, key, form.get(key));
     }
     settings = await getSettings(db);
@@ -7894,6 +9513,38 @@ async function refreshProfile() {
     if (display) display.textContent = `Engine Skill: ${settings.engine_skill_level}`;
     setStatus("Settings saved");
     await refreshProfile();
+  });
+  el("btn-db-export")?.addEventListener("click", async () => {
+    try {
+      const data = await exportDatabaseJson(db);
+      const json = JSON.stringify(data, null, 2);
+      const blob = new Blob([json], { type: "application/json" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `cat_analyst_backup_${Date.now()}.json`;
+      a.click();
+      URL.revokeObjectURL(url);
+      setStatus("Database exported");
+    } catch (err) {
+      alert("Export failed: " + err.message);
+    }
+  });
+  el("btn-db-import")?.addEventListener("click", () => {
+    el("db-import-file")?.click();
+  });
+  el("db-import-file")?.addEventListener("change", async (e) => {
+    const file2 = e.target.files?.[0];
+    if (!file2) return;
+    try {
+      const text = await file2.text();
+      const payload = JSON.parse(text);
+      await importDatabaseJson(db, payload);
+      alert("Database restored successfully!");
+      await refreshProfile();
+    } catch (err) {
+      alert("Import failed: " + err.message);
+    }
   });
   el("btn-corpus-update")?.addEventListener("click", () => importCorpus({ force: true }).catch(() => {
   }));
@@ -7921,7 +9572,7 @@ async function initializePractice() {
   chess = new Chess();
   renderBoard();
   setStatus("Ready");
-  setMoveStatus('Tap "Pounce on Weakness" to begin.');
+  setMoveStatus('Tap "Pounce on Weakness" or "Free Play" to begin.');
 }
 async function boot() {
   setStatus("Waking the cat\u2026");
@@ -7953,6 +9604,7 @@ async function boot() {
     setMoveStatus("Download the one-time puzzle pack to begin.");
   }
   el("btn-start-target")?.addEventListener("click", startTargetedSession);
+  el("btn-freeplay")?.addEventListener("click", startFreeplaySession);
   el("btn-next-queued")?.addEventListener("click", startNextQueued);
   el("btn-complete")?.addEventListener("click", completeSession);
   el("btn-download-corpus")?.addEventListener("click", () => importCorpus().catch(() => {
@@ -7965,6 +9617,28 @@ async function boot() {
   el("btn-flip")?.addEventListener("click", () => {
     boardFlipped = !boardFlipped;
     renderBoard();
+  });
+  el("btn-hint")?.addEventListener("click", openHintModal);
+  el("btn-hint-more")?.addEventListener("click", requestNextHintTier);
+  el("btn-hint-close")?.addEventListener("click", () => el("hint-modal")?.classList.add("hidden"));
+  el("btn-takeback")?.addEventListener("click", handleTakeback);
+  el("btn-draw")?.addEventListener("click", handleOfferDraw);
+  el("btn-resign")?.addEventListener("click", handleResign);
+  el("btn-blunder-cancel")?.addEventListener("click", () => {
+    pendingBlunderMove = null;
+    el("blunder-modal")?.classList.add("hidden");
+    setMoveStatus("Move cancelled. Choose a better line!");
+  });
+  el("btn-blunder-confirm")?.addEventListener("click", async () => {
+    el("blunder-modal")?.classList.add("hidden");
+    if (pendingBlunderMove) {
+      const { from, to } = pendingBlunderMove;
+      pendingBlunderMove = null;
+      await executePlayerMove(from, to);
+    }
+  });
+  el("btn-score-continue")?.addEventListener("click", () => {
+    el("score-modal")?.classList.add("hidden");
   });
   el("tab-moves")?.addEventListener("click", () => {
     el("tab-content-moves")?.classList.remove("hidden");

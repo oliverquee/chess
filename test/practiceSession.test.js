@@ -102,3 +102,81 @@ test('failed engine response leaves the entire practice turn uncommitted', async
   assert.equal(session.currentFen, MOTIF_READY_FEN);
   assert.deepEqual(session.logs, []);
 });
+
+test('freeplay session supports unseeded start, takebacks, resign and draw offers', async () => {
+  const analyses = [
+    { bestMove: 'e2e4', evalCp: 15, isMateScore: false, principalVariation: ['e2e4'] },
+    { bestMove: 'e7e5', evalCp: 20, isMateScore: false, principalVariation: ['e7e5'] },
+    { bestMove: 'g1f3', evalCp: 18, isMateScore: false, principalVariation: ['g1f3'] },
+  ];
+  const engine = {
+    async analyzePosition() {
+      return analyses.shift() || { bestMove: 'd7d5', evalCp: 0, isMateScore: false, principalVariation: [] };
+    },
+    async playMove() {
+      return 'e7e5';
+    },
+  };
+
+  const session = new PracticeSession({
+    mode: 'freeplay',
+    persona: 'panther',
+    timeControl: '3|2',
+    playerColor: 'white',
+    engine,
+    gameId: 'freeplay-1',
+  });
+
+  assert.equal(session.mode, 'freeplay');
+  assert.equal(session.persona, 'panther');
+  assert.equal(session.playerColor, 'white');
+  assert.equal(session.startFen, RAW_FEN);
+
+  // Turn 1: White plays e4, engine responds e5
+  await session.playTurn('e2e4');
+  assert.equal(session.logs.length, 2);
+  assert.equal(session.takebackCount, 0);
+  assert.equal(session.computeAssistanceLevel(), 'none');
+
+  // Test takeback
+  const tb = session.takeback();
+  assert.equal(tb.takebackCount, 1);
+  assert.equal(tb.revertedFen, RAW_FEN);
+  assert.equal(session.logs.length, 0);
+  assert.equal(session.currentFen, RAW_FEN);
+  assert.equal(session.computeAssistanceLevel(), 'hints'); // 1 takeback -> assistance hints
+
+  // Play turn again after takeback
+  await session.playTurn('d2d4');
+  assert.equal(session.logs.length, 2);
+
+  // Test draw offer in balanced position
+  const drawOffer = await session.offerDraw();
+  assert.equal(drawOffer.accepted, true);
+  assert.equal(session.result, '1/2-1/2');
+
+  const summary = session.summary();
+  assert.equal(summary.mode, 'freeplay');
+  assert.equal(summary.result, '1/2-1/2');
+  assert.equal(summary.assistance_level, 'hints');
+});
+
+test('assistance level transitions accurately from none to preview, hints, and full', () => {
+  const dummyEngine = {
+    async analyzePosition() { return { bestMove: null, evalCp: 0, principalVariation: [], isMateScore: false }; },
+    async playMove() { return 'e7e5'; },
+  };
+
+  const session = new PracticeSession({ engine: dummyEngine, gameId: 'assist-test' });
+  assert.equal(session.computeAssistanceLevel(), 'none');
+
+  session.recordPreview();
+  assert.equal(session.computeAssistanceLevel(), 'preview');
+
+  session.recordHint('warm', 'see_hanging_piece');
+  assert.equal(session.computeAssistanceLevel(), 'hints');
+
+  session.takebackCount = 2;
+  assert.equal(session.computeAssistanceLevel(), 'full');
+});
+

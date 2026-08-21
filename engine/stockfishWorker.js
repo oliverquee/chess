@@ -2,6 +2,87 @@ const DEFAULT_ANALYSIS_DEPTH = 16;
 const DEFAULT_PLAY_DEPTH = 12;
 const MATE_SCORE_CP = 100000;
 
+export const PERSONAS = Object.freeze({
+  kitten: Object.freeze({
+    id: 'kitten',
+    name: 'Kitten',
+    avatar: '🐱',
+    theme: 'orange-tabby',
+    targetElo: 800,
+    uciLimitStrength: false,
+    skillLevel: 0,
+    depth: 1,
+    description: 'Playful and makes frequent blunders (~800 Elo)',
+  }),
+  tabby: Object.freeze({
+    id: 'tabby',
+    name: 'Tabby',
+    avatar: '🐱',
+    theme: 'orange-tabby',
+    targetElo: 1200,
+    uciLimitStrength: false,
+    skillLevel: 3,
+    depth: 4,
+    description: 'Casual club player with basic tactical awareness (~1200 Elo)',
+  }),
+  alley_cat: Object.freeze({
+    id: 'alley_cat',
+    name: 'Alley Cat',
+    avatar: '🐈',
+    theme: 'calico',
+    targetElo: 1500,
+    uciLimitStrength: true,
+    uciElo: 1500,
+    depth: 8,
+    description: 'Solid intermediate player with sharp eyes (~1500 Elo)',
+  }),
+  hunter: Object.freeze({
+    id: 'hunter',
+    name: 'Hunter',
+    avatar: '🐆',
+    theme: 'fox',
+    targetElo: 1800,
+    uciLimitStrength: true,
+    uciElo: 1800,
+    depth: 12,
+    description: 'Dangerous attacking player with strong fundamentals (~1800 Elo)',
+  }),
+  panther: Object.freeze({
+    id: 'panther',
+    name: 'Panther',
+    avatar: '🐆',
+    theme: 'black-cat',
+    targetElo: 2100,
+    uciLimitStrength: true,
+    uciElo: 2100,
+    depth: 16,
+    description: 'Master-level tactician who pounces on any inaccuracy (~2100 Elo)',
+  }),
+  apex_tiger: Object.freeze({
+    id: 'apex_tiger',
+    name: 'Apex Tiger',
+    avatar: '🐅',
+    theme: 'panda',
+    targetElo: 2800,
+    uciLimitStrength: false,
+    skillLevel: 20,
+    depth: 20,
+    description: 'Uncapped Stockfish engine at maximum strength (~2800+ Elo)',
+  }),
+});
+
+export function resolvePersona(config) {
+  if (!config) return PERSONAS.tabby;
+  if (typeof config === 'string') {
+    const key = config.toLowerCase().replace(/[-\s]/g, '_');
+    return PERSONAS[key] ?? PERSONAS.tabby;
+  }
+  if (typeof config === 'object' && config.id && PERSONAS[config.id]) {
+    return PERSONAS[config.id];
+  }
+  return config;
+}
+
 function normalizeWorkerMessage(event) {
   const value = event?.data ?? event;
   return String(value ?? '').trim();
@@ -219,25 +300,49 @@ export class StockfishWorkerClient {
     });
   }
 
-  playMove(fen, skillLevel = 10) {
+  playMove(fen, personaOrSkillLevel = 10) {
     return this.enqueue(async () => {
       await this.ensureReady();
 
-      const strength = Number(skillLevel);
-      if (!Number.isFinite(strength)) {
-        throw new TypeError('skillLevel must be a finite number.');
-      }
+      let targetDepth = this.playDepth;
 
-      if (strength >= 0 && strength <= 20) {
-        this.post('setoption name UCI_LimitStrength value false');
-        this.post(`setoption name Skill Level value ${Math.trunc(strength)}`);
+      if (typeof personaOrSkillLevel === 'string' && PERSONAS[personaOrSkillLevel.toLowerCase().replace(/[-\s]/g, '_')]) {
+        const p = resolvePersona(personaOrSkillLevel);
+        targetDepth = p.depth ?? this.playDepth;
+        if (p.uciLimitStrength && p.uciElo) {
+          this.post('setoption name UCI_LimitStrength value true');
+          this.post(`setoption name UCI_Elo value ${Math.trunc(p.uciElo)}`);
+        } else {
+          this.post('setoption name UCI_LimitStrength value false');
+          this.post(`setoption name Skill Level value ${Math.trunc(p.skillLevel ?? 20)}`);
+        }
+      } else if (typeof personaOrSkillLevel === 'object' && personaOrSkillLevel !== null) {
+        const p = personaOrSkillLevel;
+        targetDepth = p.depth ?? this.playDepth;
+        if (p.uciLimitStrength && p.uciElo) {
+          this.post('setoption name UCI_LimitStrength value true');
+          this.post(`setoption name UCI_Elo value ${Math.trunc(p.uciElo)}`);
+        } else {
+          this.post('setoption name UCI_LimitStrength value false');
+          this.post(`setoption name Skill Level value ${Math.trunc(p.skillLevel ?? 20)}`);
+        }
       } else {
-        this.post('setoption name UCI_LimitStrength value true');
-        this.post(`setoption name UCI_Elo value ${Math.trunc(strength)}`);
+        const strength = Number(personaOrSkillLevel);
+        if (!Number.isFinite(strength)) {
+          throw new TypeError('personaOrSkillLevel must be a persona name, object, or finite number.');
+        }
+
+        if (strength >= 0 && strength <= 20) {
+          this.post('setoption name UCI_LimitStrength value false');
+          this.post(`setoption name Skill Level value ${Math.trunc(strength)}`);
+        } else {
+          this.post('setoption name UCI_LimitStrength value true');
+          this.post(`setoption name UCI_Elo value ${Math.trunc(strength)}`);
+        }
       }
       await this.syncReady();
 
-      const result = await this.search(fen, `go depth ${this.playDepth}`);
+      const result = await this.search(fen, `go depth ${Math.max(1, Math.trunc(targetDepth))}`);
       return result.bestMove;
     });
   }

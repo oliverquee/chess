@@ -11,7 +11,7 @@ PRAGMA foreign_keys = ON;
 CREATE TABLE IF NOT EXISTS games (
   id TEXT PRIMARY KEY,
   date TEXT,
-  mode TEXT CHECK(mode IN ('practice','imported')),
+  mode TEXT CHECK(mode IN ('practice','imported','freeplay')),
   status TEXT NOT NULL DEFAULT 'completed' CHECK(status IN ('queued','in_progress','completed','analyzed')),
   result TEXT,
   seeded_weakness TEXT NULL,
@@ -24,7 +24,12 @@ CREATE TABLE IF NOT EXISTS games (
   white_player TEXT NULL,
   black_player TEXT NULL,
   analysis_engine TEXT NULL,
-  analysis_depth INTEGER NULL
+  analysis_depth INTEGER NULL,
+  assistance_level TEXT NOT NULL DEFAULT 'none' CHECK(assistance_level IN ('none','preview','hints','full')),
+  hint_count INTEGER NOT NULL DEFAULT 0,
+  takeback_count INTEGER NOT NULL DEFAULT 0,
+  time_control TEXT NULL,
+  persona TEXT NULL
 );
 
 CREATE TABLE IF NOT EXISTS moves (
@@ -96,15 +101,69 @@ CREATE TABLE IF NOT EXISTS settings (
   value TEXT NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS seed_scores (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  game_id TEXT NOT NULL REFERENCES games(id),
+  accuracy_component REAL NOT NULL,
+  motif_component REAL NOT NULL,
+  hint_penalty REAL NOT NULL,
+  total_score REAL NOT NULL,
+  computed_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS daily_stats (
+  date TEXT PRIMARY KEY,
+  sessions_completed INTEGER NOT NULL DEFAULT 0,
+  goal_target INTEGER NOT NULL DEFAULT 3,
+  goal_met INTEGER NOT NULL DEFAULT 0 CHECK(goal_met IN (0,1)),
+  total_score REAL NOT NULL DEFAULT 0,
+  streak_day_counted INTEGER NOT NULL DEFAULT 0 CHECK(streak_day_counted IN (0,1))
+);
+
+CREATE TABLE IF NOT EXISTS streak_state (
+  id INTEGER PRIMARY KEY CHECK(id = 1),
+  current_streak INTEGER NOT NULL DEFAULT 0,
+  longest_streak INTEGER NOT NULL DEFAULT 0,
+  freezes_remaining INTEGER NOT NULL DEFAULT 2,
+  freezes_month TEXT NULL,
+  last_counted_date TEXT NULL
+);
+
+CREATE TABLE IF NOT EXISTS category_mastery (
+  category TEXT PRIMARY KEY CHECK(category IN (
+    'tactical',
+    'king_safety',
+    'pawn_structure',
+    'piece_activity',
+    'positional_judgment',
+    'endgame_technique',
+    'practical_time'
+  )),
+  mastery_level INTEGER NOT NULL DEFAULT 0 CHECK(mastery_level BETWEEN 0 AND 5),
+  last_practiced_at TEXT NULL,
+  decay_checked_at TEXT NULL
+);
+
+CREATE TABLE IF NOT EXISTS hint_logs (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  game_id TEXT NOT NULL REFERENCES games(id),
+  fen TEXT NOT NULL,
+  tier TEXT NOT NULL CHECK(tier IN ('warm','warmer','hot')),
+  detector TEXT NULL,
+  created_at TEXT NOT NULL
+);
+
 CREATE INDEX IF NOT EXISTS idx_games_seeded_weakness ON games(seeded_weakness);
 CREATE INDEX IF NOT EXISTS idx_moves_game_id ON moves(game_id);
 CREATE INDEX IF NOT EXISTS idx_weakness_tags_category ON weakness_tags(category);
 CREATE INDEX IF NOT EXISTS idx_move_classifications_move_id ON move_classifications(move_id);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_move_classifications_current
   ON move_classifications(move_id) WHERE is_current = 1;
+CREATE INDEX IF NOT EXISTS idx_seed_scores_game_id ON seed_scores(game_id);
+CREATE INDEX IF NOT EXISTS idx_hint_logs_game_id ON hint_logs(game_id);
 `;
 
-const ALLOWED_MODES = new Set(['practice', 'imported']);
+const ALLOWED_MODES = new Set(['practice', 'imported', 'freeplay']);
 const SESSION_TRANSITIONS = Object.freeze({
   queued: 'in_progress',
   in_progress: 'completed',
@@ -127,6 +186,12 @@ const SETTING_DEFAULTS = Object.freeze({
   chesscom_username: 'lastautumnleaf1',
   engine_skill_level: '10',
   theme: 'cat',
+  daily_goal: '3',
+  rated_practice: 'false',
+  preview_depth: '3',
+  freeplay_persona: 'tabby',
+  freeplay_time_control: '5|0',
+  freeplay_color: 'random',
 });
 const SETTING_KEYS = new Set(Object.keys(SETTING_DEFAULTS));
 
@@ -293,6 +358,77 @@ async function ensureWeaknessClassificationColumn(db) {
   }
 }
 
+async function ensureM10ColumnsAndTables(db) {
+  const gameRes = await db.query('PRAGMA table_info(games)');
+  const gameColumns = new Set((gameRes.values || []).map((column) => column.name));
+  const gameAdditions = [
+    ['assistance_level', "TEXT NOT NULL DEFAULT 'none' CHECK(assistance_level IN ('none','preview','hints','full'))"],
+    ['hint_count', 'INTEGER NOT NULL DEFAULT 0'],
+    ['takeback_count', 'INTEGER NOT NULL DEFAULT 0'],
+    ['time_control', 'TEXT NULL'],
+    ['persona', 'TEXT NULL'],
+  ];
+  for (const [name, type] of gameAdditions) {
+    if (!gameColumns.has(name)) await db.execute(`ALTER TABLE games ADD COLUMN ${name} ${type}`);
+  }
+
+  await db.execute(`
+    CREATE TABLE IF NOT EXISTS settings (
+      key TEXT PRIMARY KEY,
+      value TEXT NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS seed_scores (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      game_id TEXT NOT NULL REFERENCES games(id),
+      accuracy_component REAL NOT NULL,
+      motif_component REAL NOT NULL,
+      hint_penalty REAL NOT NULL,
+      total_score REAL NOT NULL,
+      computed_at TEXT NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS daily_stats (
+      date TEXT PRIMARY KEY,
+      sessions_completed INTEGER NOT NULL DEFAULT 0,
+      goal_target INTEGER NOT NULL DEFAULT 3,
+      goal_met INTEGER NOT NULL DEFAULT 0 CHECK(goal_met IN (0,1)),
+      total_score REAL NOT NULL DEFAULT 0,
+      streak_day_counted INTEGER NOT NULL DEFAULT 0 CHECK(streak_day_counted IN (0,1))
+    );
+    CREATE TABLE IF NOT EXISTS streak_state (
+      id INTEGER PRIMARY KEY CHECK(id = 1),
+      current_streak INTEGER NOT NULL DEFAULT 0,
+      longest_streak INTEGER NOT NULL DEFAULT 0,
+      freezes_remaining INTEGER NOT NULL DEFAULT 2,
+      freezes_month TEXT NULL,
+      last_counted_date TEXT NULL
+    );
+    CREATE TABLE IF NOT EXISTS category_mastery (
+      category TEXT PRIMARY KEY CHECK(category IN (
+        'tactical',
+        'king_safety',
+        'pawn_structure',
+        'piece_activity',
+        'positional_judgment',
+        'endgame_technique',
+        'practical_time'
+      )),
+      mastery_level INTEGER NOT NULL DEFAULT 0 CHECK(mastery_level BETWEEN 0 AND 5),
+      last_practiced_at TEXT NULL,
+      decay_checked_at TEXT NULL
+    );
+    CREATE TABLE IF NOT EXISTS hint_logs (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      game_id TEXT NOT NULL REFERENCES games(id),
+      fen TEXT NOT NULL,
+      tier TEXT NOT NULL CHECK(tier IN ('warm','warmer','hot')),
+      detector TEXT NULL,
+      created_at TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_seed_scores_game_id ON seed_scores(game_id);
+    CREATE INDEX IF NOT EXISTS idx_hint_logs_game_id ON hint_logs(game_id);
+  `);
+}
+
 async function insertMoves(db, summary) {
   const insertMoveSql = `
     INSERT INTO moves (
@@ -354,6 +490,7 @@ export async function initDb(path) {
   await ensureMoveAnalysisColumns(db);
   await ensureWeaknessClassificationColumn(db);
   await ensureImportColumns(db);
+  await ensureM10ColumnsAndTables(db);
   
   return db;
 }
@@ -366,8 +503,9 @@ export async function saveGameSession(db, summary) {
     INSERT INTO games (
       id, date, mode, status, result, seeded_weakness, seed_puzzle_id, start_fen, current_fen,
       import_source, external_game_id, player_color, white_player, black_player,
-      analysis_engine, analysis_depth
-    ) VALUES (?, ?, ?, 'completed', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      analysis_engine, analysis_depth,
+      assistance_level, hint_count, takeback_count, time_control, persona
+    ) VALUES (?, ?, ?, 'completed', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `;
 
   const date = summary.date ?? summary.moves[0]?.timestamp ?? new Date().toISOString();
@@ -389,6 +527,11 @@ export async function saveGameSession(db, summary) {
       summary.black_player ?? null,
       summary.analysis_engine ?? null,
       summary.analysis_depth ?? null,
+      summary.assistance_level ?? 'none',
+      summary.hint_count ?? 0,
+      summary.takeback_count ?? 0,
+      summary.time_control ?? null,
+      summary.persona ?? null,
     ]);
 
     await insertMoves(transactionDb, summary);
@@ -468,7 +611,8 @@ export async function completeGameSession(db, summary) {
     const result = await transactionDb.run(`
       UPDATE games
       SET date = ?, mode = ?, status = 'completed', result = ?,
-          seeded_weakness = ?, seed_puzzle_id = ?, start_fen = ?, current_fen = ?
+          seeded_weakness = ?, seed_puzzle_id = ?, start_fen = ?, current_fen = ?,
+          assistance_level = ?, hint_count = ?, takeback_count = ?, time_control = ?, persona = ?
       WHERE id = ? AND status = 'in_progress'
     `, [
       date,
@@ -478,6 +622,11 @@ export async function completeGameSession(db, summary) {
       summary.seed_puzzle_id ?? null,
       summary.start_fen ?? null,
       summary.current_fen ?? null,
+      summary.assistance_level ?? 'none',
+      summary.hint_count ?? 0,
+      summary.takeback_count ?? 0,
+      summary.time_control ?? null,
+      summary.persona ?? null,
       summary.id,
     ]);
     
@@ -510,7 +659,8 @@ export async function getGameHistory(db, { limit, weaknessCategory } = {}) {
   const sql = `
     SELECT id, date, mode, status, result, seeded_weakness, seed_puzzle_id, start_fen, current_fen,
            import_source, external_game_id, player_color, white_player, black_player,
-           analysis_engine, analysis_depth
+           analysis_engine, analysis_depth,
+           assistance_level, hint_count, takeback_count, time_control, persona
     FROM games
     ${where}
     ORDER BY date DESC, rowid DESC
@@ -552,7 +702,8 @@ export async function getGameById(db, gameId) {
   const gameRes = await db.query(`
     SELECT id, date, mode, status, result, seeded_weakness, seed_puzzle_id, start_fen, current_fen,
            import_source, external_game_id, player_color, white_player, black_player,
-           analysis_engine, analysis_depth
+           analysis_engine, analysis_depth,
+           assistance_level, hint_count, takeback_count, time_control, persona
     FROM games WHERE id = ?
   `, [gameId]);
   
@@ -689,7 +840,7 @@ export async function getMoveClassifications(db, moveId, { currentOnly = false }
 export async function getWeaknessTally(db, { sinceGameId } = {}) {
   assertDb(db);
 
-  let where = 'WHERE (wt.classification_id IS NULL OR mc.is_current = 1)';
+  let where = "WHERE (wt.classification_id IS NULL OR mc.is_current = 1) AND g.assistance_level = 'none'";
   let params = [];
 
   if (sinceGameId !== undefined) {
@@ -746,7 +897,7 @@ export async function getProfileStats(db, { recentLimit = 10 } = {}) {
   const totals = totalsRes.values?.[0] ?? { total_sessions: 0, total_moves: 0 };
 
   const recentRes = await db.query(`
-    SELECT g.id, g.date, g.seeded_weakness, g.result, g.status, COUNT(m.id) AS move_count
+    SELECT g.id, g.date, g.seeded_weakness, g.result, g.status, g.assistance_level, g.persona, COUNT(m.id) AS move_count
     FROM games g
     LEFT JOIN moves m ON m.game_id = g.id
     WHERE g.status IN ('completed', 'analyzed')
@@ -799,13 +950,347 @@ export async function setSetting(db, key, value) {
   return normalized;
 }
 
+export async function saveSeedScore(db, { gameId, accuracyComponent, motifComponent, hintPenalty, totalScore, computedAt = new Date().toISOString() }) {
+  assertDb(db);
+  if (typeof gameId !== 'string' || !gameId) throw new TypeError('gameId must be a non-empty string.');
+  return withTransaction(db, async (transactionDb) => {
+    const res = await transactionDb.run(`
+      INSERT INTO seed_scores (game_id, accuracy_component, motif_component, hint_penalty, total_score, computed_at)
+      VALUES (?, ?, ?, ?, ?, ?)
+    `, [gameId, Number(accuracyComponent), Number(motifComponent), Number(hintPenalty), Number(totalScore), computedAt]);
+    return Number(res.changes?.lastId);
+  });
+}
+
+export async function getSeedScore(db, gameId) {
+  assertDb(db);
+  if (typeof gameId !== 'string' || !gameId) throw new TypeError('gameId must be a non-empty string.');
+  const res = await db.query('SELECT * FROM seed_scores WHERE game_id = ? ORDER BY id DESC LIMIT 1', [gameId]);
+  return res.values && res.values.length > 0 ? { ...res.values[0] } : null;
+}
+
+export async function saveHintLog(db, { gameId, fen, tier, detector = null, createdAt = new Date().toISOString() }) {
+  assertDb(db);
+  if (typeof gameId !== 'string' || !gameId) throw new TypeError('gameId must be a non-empty string.');
+  if (typeof fen !== 'string' || !fen) throw new TypeError('fen must be a non-empty string.');
+  if (!['warm', 'warmer', 'hot'].includes(tier)) throw new RangeError(`Invalid tier: ${tier}`);
+  return withTransaction(db, async (transactionDb) => {
+    const res = await transactionDb.run(`
+      INSERT INTO hint_logs (game_id, fen, tier, detector, created_at)
+      VALUES (?, ?, ?, ?, ?)
+    `, [gameId, fen, tier, detector, createdAt]);
+    return Number(res.changes?.lastId);
+  });
+}
+
+export async function getHintLogs(db, gameId) {
+  assertDb(db);
+  if (typeof gameId !== 'string' || !gameId) throw new TypeError('gameId must be a non-empty string.');
+  const res = await db.query('SELECT * FROM hint_logs WHERE game_id = ? ORDER BY id ASC', [gameId]);
+  return (res.values || []).map((row) => ({ ...row }));
+}
+
+export async function getDailyStats(db, date) {
+  assertDb(db);
+  if (typeof date !== 'string' || !date) throw new TypeError('date must be a non-empty string (YYYY-MM-DD).');
+  const res = await db.query('SELECT * FROM daily_stats WHERE date = ?', [date]);
+  if (!res.values || res.values.length === 0) return null;
+  const row = res.values[0];
+  return {
+    date: row.date,
+    sessionsCompleted: Number(row.sessions_completed),
+    goalTarget: Number(row.goal_target),
+    goalMet: Boolean(row.goal_met),
+    totalScore: Number(row.total_score),
+    streakDayCounted: Boolean(row.streak_day_counted),
+  };
+}
+
+export async function getRecentDailyStats(db, { limitDays = 30 } = {}) {
+  assertDb(db);
+  const res = await db.query('SELECT * FROM daily_stats ORDER BY date DESC LIMIT ?', [limitDays]);
+  return (res.values || []).map((row) => ({
+    date: row.date,
+    sessionsCompleted: Number(row.sessions_completed),
+    goalTarget: Number(row.goal_target),
+    goalMet: Boolean(row.goal_met),
+    totalScore: Number(row.total_score),
+    streakDayCounted: Boolean(row.streak_day_counted),
+  }));
+}
+
+export async function recordDailySession(db, { date, targetGoal = 3, sessionScore = 0, isCountedStreakDay = 0 }) {
+  assertDb(db);
+  return withTransaction(db, async (transactionDb) => {
+    const res = await transactionDb.query('SELECT * FROM daily_stats WHERE date = ?', [date]);
+    const existing = res.values && res.values.length > 0 ? res.values[0] : null;
+    if (!existing) {
+      const completed = 1;
+      const met = completed >= targetGoal ? 1 : 0;
+      await transactionDb.run(`
+        INSERT INTO daily_stats (date, sessions_completed, goal_target, goal_met, total_score, streak_day_counted)
+        VALUES (?, ?, ?, ?, ?, ?)
+      `, [date, completed, targetGoal, met, Number(sessionScore), isCountedStreakDay ? 1 : 0]);
+    } else {
+      const completed = Number(existing.sessions_completed) + 1;
+      const met = completed >= Number(existing.goal_target) ? 1 : 0;
+      const totalScore = Number(existing.total_score) + Number(sessionScore);
+      const streakCounted = existing.streak_day_counted || isCountedStreakDay ? 1 : 0;
+      await transactionDb.run(`
+        UPDATE daily_stats
+        SET sessions_completed = ?, goal_met = ?, total_score = ?, streak_day_counted = ?
+        WHERE date = ?
+      `, [completed, met, totalScore, streakCounted, date]);
+    }
+  });
+}
+
+export async function getStreakState(db) {
+  assertDb(db);
+  const res = await db.query('SELECT * FROM streak_state WHERE id = 1');
+  if (!res.values || res.values.length === 0) {
+    return {
+      currentStreak: 0,
+      longestStreak: 0,
+      freezesRemaining: 2,
+      freezesMonth: new Date().toISOString().slice(0, 7),
+      lastCountedDate: null,
+    };
+  }
+  const row = res.values[0];
+  return {
+    currentStreak: Number(row.current_streak),
+    longestStreak: Number(row.longest_streak),
+    freezesRemaining: Number(row.freezes_remaining),
+    freezesMonth: row.freezes_month,
+    lastCountedDate: row.last_counted_date,
+  };
+}
+
+export async function updateStreakState(db, { currentStreak, longestStreak, freezesRemaining, freezesMonth, lastCountedDate }) {
+  assertDb(db);
+  return withTransaction(db, async (transactionDb) => {
+    await transactionDb.run(`
+      INSERT INTO streak_state (id, current_streak, longest_streak, freezes_remaining, freezes_month, last_counted_date)
+      VALUES (1, ?, ?, ?, ?, ?)
+      ON CONFLICT(id) DO UPDATE SET
+        current_streak = excluded.current_streak,
+        longest_streak = excluded.longest_streak,
+        freezes_remaining = excluded.freezes_remaining,
+        freezes_month = excluded.freezes_month,
+        last_counted_date = excluded.last_counted_date
+    `, [currentStreak, longestStreak, freezesRemaining, freezesMonth, lastCountedDate]);
+  });
+}
+
+export async function getCategoryMastery(db) {
+  assertDb(db);
+  const res = await db.query('SELECT * FROM category_mastery');
+  const masteryMap = {};
+  for (const cat of WEAKNESS_CATEGORIES) {
+    masteryMap[cat] = {
+      category: cat,
+      masteryLevel: 0,
+      lastPracticedAt: null,
+      decayCheckedAt: null,
+    };
+  }
+  for (const row of res.values || []) {
+    masteryMap[row.category] = {
+      category: row.category,
+      masteryLevel: Number(row.mastery_level),
+      lastPracticedAt: row.last_practiced_at,
+      decayCheckedAt: row.decay_checked_at,
+    };
+  }
+  return masteryMap;
+}
+
+export async function updateCategoryMastery(db, { category, masteryLevel, lastPracticedAt, decayCheckedAt }) {
+  assertDb(db);
+  if (!WEAKNESS_CATEGORIES.has(category)) throw new RangeError(`Unknown weakness category: ${category}`);
+  return withTransaction(db, async (transactionDb) => {
+    await transactionDb.run(`
+      INSERT INTO category_mastery (category, mastery_level, last_practiced_at, decay_checked_at)
+      VALUES (?, ?, ?, ?)
+      ON CONFLICT(category) DO UPDATE SET
+        mastery_level = excluded.mastery_level,
+        last_practiced_at = excluded.last_practiced_at,
+        decay_checked_at = excluded.decay_checked_at
+    `, [category, Math.max(0, Math.min(5, Math.trunc(masteryLevel))), lastPracticedAt ?? null, decayCheckedAt ?? null]);
+  });
+}
+
+async function clearAllUserData(db) {
+  await db.execute('DELETE FROM hint_logs;');
+  await db.execute('DELETE FROM seed_scores;');
+  await db.execute('DELETE FROM weakness_tags;');
+  await db.execute('DELETE FROM move_classifications;');
+  await db.execute('DELETE FROM moves;');
+  await db.execute('DELETE FROM games;');
+  await db.execute('DELETE FROM settings;');
+  await db.execute('DELETE FROM daily_stats;');
+  await db.execute('DELETE FROM streak_state;');
+  await db.execute('DELETE FROM category_mastery;');
+}
+
 export async function resetUserData(db) {
   assertDb(db);
   return withTransaction(db, async (transactionDb) => {
-    await transactionDb.execute('DELETE FROM weakness_tags;');
-    await transactionDb.execute('DELETE FROM move_classifications;');
-    await transactionDb.execute('DELETE FROM moves;');
-    await transactionDb.execute('DELETE FROM games;');
-    await transactionDb.execute('DELETE FROM settings;');
+    await clearAllUserData(transactionDb);
+  });
+}
+
+export async function exportDatabaseJson(db) {
+  assertDb(db);
+  const [
+    settings, games, moves, weakness_tags, move_classifications,
+    seed_scores, daily_stats, streak_state, category_mastery, hint_logs
+  ] = await Promise.all([
+    db.query('SELECT * FROM settings'),
+    db.query('SELECT * FROM games'),
+    db.query('SELECT * FROM moves'),
+    db.query('SELECT * FROM weakness_tags'),
+    db.query('SELECT * FROM move_classifications'),
+    db.query('SELECT * FROM seed_scores'),
+    db.query('SELECT * FROM daily_stats'),
+    db.query('SELECT * FROM streak_state'),
+    db.query('SELECT * FROM category_mastery'),
+    db.query('SELECT * FROM hint_logs'),
+  ]);
+
+  return {
+    version: 1,
+    exported_at: new Date().toISOString(),
+    tables: {
+      settings: settings.values || [],
+      games: games.values || [],
+      moves: moves.values || [],
+      weakness_tags: weakness_tags.values || [],
+      move_classifications: move_classifications.values || [],
+      seed_scores: seed_scores.values || [],
+      daily_stats: daily_stats.values || [],
+      streak_state: streak_state.values || [],
+      category_mastery: category_mastery.values || [],
+      hint_logs: hint_logs.values || [],
+    },
+  };
+}
+
+export async function importDatabaseJson(db, payload) {
+  assertDb(db);
+  if (!payload || typeof payload !== 'object' || !payload.tables) {
+    throw new TypeError('Invalid backup payload.');
+  }
+
+  return withTransaction(db, async (transactionDb) => {
+    await clearAllUserData(transactionDb);
+    const t = payload.tables;
+
+    if (Array.isArray(t.settings)) {
+      for (const r of t.settings) {
+        await transactionDb.run('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)', [r.key, r.value]);
+      }
+    }
+    if (Array.isArray(t.games)) {
+      const stmt = `
+        INSERT INTO games (
+          id, date, mode, status, result, seeded_weakness, seed_puzzle_id, start_fen, current_fen,
+          import_source, external_game_id, player_color, white_player, black_player,
+          analysis_engine, analysis_depth, assistance_level, hint_count, takeback_count, time_control, persona
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `;
+      for (const r of t.games) {
+        await transactionDb.run(stmt, [
+          r.id, r.date, r.mode, r.status, r.result, r.seeded_weakness, r.seed_puzzle_id, r.start_fen, r.current_fen,
+          r.import_source, r.external_game_id, r.player_color, r.white_player, r.black_player,
+          r.analysis_engine, r.analysis_depth,
+          r.assistance_level ?? 'none', r.hint_count ?? 0, r.takeback_count ?? 0, r.time_control ?? null, r.persona ?? null,
+        ]);
+      }
+    }
+    if (Array.isArray(t.moves)) {
+      const stmt = `
+        INSERT INTO moves (
+          id, game_id, ply_number, fen_before, move_played, eval_cp_before, eval_cp_after,
+          best_move, principal_variation, is_mate_score, stockfish_response, timestamp, timestamp_source
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `;
+      for (const r of t.moves) {
+        await transactionDb.run(stmt, [
+          r.id, r.game_id, r.ply_number, r.fen_before, r.move_played, r.eval_cp_before, r.eval_cp_after,
+          r.best_move, r.principal_variation, r.is_mate_score, r.stockfish_response, r.timestamp, r.timestamp_source ?? 'live_recorded',
+        ]);
+      }
+    }
+    if (Array.isArray(t.move_classifications)) {
+      const stmt = `
+        INSERT INTO move_classifications (
+          id, move_id, status, category, severity, rationale, error, attempts,
+          model_used, backend, prompt_version, prompt_hash, analysis_timestamp, is_current
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `;
+      for (const r of t.move_classifications) {
+        await transactionDb.run(stmt, [
+          r.id, r.move_id, r.status, r.category, r.severity, r.rationale, r.error, r.attempts,
+          r.model_used, r.backend, r.prompt_version, r.prompt_hash, r.analysis_timestamp, r.is_current,
+        ]);
+      }
+    }
+    if (Array.isArray(t.weakness_tags)) {
+      const stmt = `
+        INSERT INTO weakness_tags (id, move_id, category, severity, source, classification_id)
+        VALUES (?, ?, ?, ?, ?, ?)
+      `;
+      for (const r of t.weakness_tags) {
+        await transactionDb.run(stmt, [r.id, r.move_id, r.category, r.severity, r.source, r.classification_id]);
+      }
+    }
+    if (Array.isArray(t.seed_scores)) {
+      const stmt = `
+        INSERT INTO seed_scores (id, game_id, accuracy_component, motif_component, hint_penalty, total_score, computed_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+      `;
+      for (const r of t.seed_scores) {
+        await transactionDb.run(stmt, [r.id, r.game_id, r.accuracy_component, r.motif_component, r.hint_penalty, r.total_score, r.computed_at]);
+      }
+    }
+    if (Array.isArray(t.daily_stats)) {
+      const stmt = `
+        INSERT INTO daily_stats (date, sessions_completed, goal_target, goal_met, total_score, streak_day_counted)
+        VALUES (?, ?, ?, ?, ?, ?)
+      `;
+      for (const r of t.daily_stats) {
+        await transactionDb.run(stmt, [r.date, r.sessions_completed, r.goal_target, r.goal_met, r.total_score, r.streak_day_counted]);
+      }
+    }
+    if (Array.isArray(t.streak_state)) {
+      const stmt = `
+        INSERT INTO streak_state (id, current_streak, longest_streak, freezes_remaining, freezes_month, last_counted_date)
+        VALUES (?, ?, ?, ?, ?, ?)
+      `;
+      for (const r of t.streak_state) {
+        await transactionDb.run(stmt, [r.id, r.current_streak, r.longest_streak, r.freezes_remaining, r.freezes_month, r.last_counted_date]);
+      }
+    }
+    if (Array.isArray(t.category_mastery)) {
+      const stmt = `
+        INSERT INTO category_mastery (category, mastery_level, last_practiced_at, decay_checked_at)
+        VALUES (?, ?, ?, ?)
+      `;
+      for (const r of t.category_mastery) {
+        await transactionDb.run(stmt, [r.category, r.mastery_level, r.last_practiced_at, r.decay_checked_at]);
+      }
+    }
+    if (Array.isArray(t.hint_logs)) {
+      const stmt = `
+        INSERT INTO hint_logs (id, game_id, fen, tier, detector, created_at)
+        VALUES (?, ?, ?, ?, ?, ?)
+      `;
+      for (const r of t.hint_logs) {
+        await transactionDb.run(stmt, [r.id, r.game_id, r.fen, r.tier, r.detector, r.created_at]);
+      }
+    }
+    return true;
   });
 }

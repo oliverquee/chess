@@ -8,26 +8,29 @@ logic in a native WebView shell.
 Secondary: Electron desktop app (already built, maintained but not the
 active development focus).
 
-## Chess.com integration
-Embedded external-content surface, THEME-ONLY overlay (CSS/JS visual skin).
-No functional changes. No AI analysis, no assistance, no live data reading
-during any chess.com gameplay. This is a hard rule — fair-play/ToS risk.
+## Assistance rules (two different surfaces, two different rules)
 
-Completed standard chess.com games may be imported post-hoc from the public
-archive API or manually exported PGN, evaluated locally, and saved with
-`mode='imported'`. Active-game board extraction or analysis is forbidden.
-Imported records persist the matched user's White/Black color and import source
-identifier. Only finished PGNs with a decisive/draw result are accepted; `*`
-and non-standard variants are rejected.
-Stockfish evidence is generated for every imported ply, but downstream
-per-move weakness classification processes only the matched user's plies.
+1. CHESS.COM SURFACE — absolutely no assistance, no exceptions.
+   Theme-only CSS injection. No board reading, no evaluation, no threat
+   detection, no move suggestion, no analysis of any kind while a
+   chess.com game is open. Real human opponents; this is a fair-play and
+   ToS boundary and it is non-negotiable.
 
-## Stockfish practice mode
+2. OFFLINE PRACTICE / FREE PLAY vs OUR OWN STOCKFISH — assistance is
+   permitted and is a core feature. Future-move preview, threat
+   detection, hanging-piece detection, blunder warnings, and
+   weakness-linked coaching are all allowed here. This is a training
+   tool, not a competitive surface.
+
+   MANDATORY: every game records an `assistance_level` ('none','preview','hints','full')
+   based on actual usage, and games with assistance are excluded from weakness/bias analysis.
+
+## Stockfish practice and free play modes
 - A locally vendored lite, single-threaded stockfish.js WASM build runs in a
   Web Worker. SharedArrayBuffer/cross-origin isolation is not required unless a
   later measured need justifies a multi-threaded build.
-- User plays live games against Stockfish.
-- "Future moves" preview is available ONLY in this mode (no human opponent).
+- User plays live games against Stockfish (targeted seeded practice or standard free play).
+- "Future moves" preview, hints, and eval bar are available in this mode (no human opponent).
 - Games are logged move-by-move with the FEN before the move, move played,
   engine evaluation before and after the move, engine best move, principal
   variation, mate-score flag, Stockfish response, and timestamp.

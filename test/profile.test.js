@@ -12,7 +12,10 @@ function createProfileDb() {
   const sync = new DatabaseSync(':memory:');
   sync.exec(`
     PRAGMA foreign_keys = ON;
-    CREATE TABLE games (id TEXT PRIMARY KEY, date TEXT, status TEXT, result TEXT, seeded_weakness TEXT);
+    CREATE TABLE games (
+      id TEXT PRIMARY KEY, date TEXT, status TEXT, result TEXT, seeded_weakness TEXT,
+      assistance_level TEXT NOT NULL DEFAULT 'none', persona TEXT NULL
+    );
     CREATE TABLE moves (id INTEGER PRIMARY KEY AUTOINCREMENT, game_id TEXT REFERENCES games(id));
     CREATE TABLE move_classifications (id INTEGER PRIMARY KEY, is_current INTEGER);
     CREATE TABLE weakness_tags (id INTEGER PRIMARY KEY AUTOINCREMENT, move_id INTEGER REFERENCES moves(id), category TEXT, classification_id INTEGER);
@@ -52,7 +55,8 @@ test('M9 profile renders real aggregates and recent sessions from SQLite', async
   const { sync, connection } = createProfileDb();
   try {
     sync.exec(`
-      INSERT INTO games VALUES ('g1','2026-08-20T08:00:00Z','completed','1-0','tactical');
+      INSERT INTO games (id, date, status, result, seeded_weakness, assistance_level, persona)
+      VALUES ('g1','2026-08-20T08:00:00Z','completed','1-0','tactical','none',NULL);
       INSERT INTO moves (game_id) VALUES ('g1'),('g1');
       INSERT INTO weakness_tags (move_id, category, classification_id) VALUES (1,'tactical',NULL),(2,'king_safety',NULL);
     `);

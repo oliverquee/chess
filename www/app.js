@@ -1,26 +1,20 @@
 /**
- * Chess Analyst — Orange Cat Edition
- * Mobile practice board, wired to the REAL verified modules.
- *
- * This replaces the previous standalone prototype, which reimplemented chess
- * rules by hand and stored sessions in memory. Everything below routes through
- * the tested code:
- *   - legality/FEN   -> chess.js
- *   - training loop  -> core/orchestrator.js
- *   - persistence    -> storage/mobileDb.js       (Capacitor SQLite)
- *   - seed puzzles   -> storage/mobilePuzzleDb.js (real corpus)
- *   - engine         -> engine/stockfishWorker.js (Stockfish 18 Lite WASM)
- *
- * NOTE: bundled by scripts/buildWeb.js into www/bundle.js. index.html loads the
- * bundle, not this file, because Capacitor ships only webDir (www/) into the
- * APK — imports outside www/ must be inlined at build time.
+ * Chess Analyst — Orange Cat Edition (Milestone M10)
+ * Mobile practice board, wired to verified engines, dual-DB storage,
+ * progressive hints, drift-proof clocks, streaks, scoring and personas.
  */
 
 import { Chess } from 'chess.js';
 import { CloseAction, InAppBrowser, ToolBarType } from '@capgo/capacitor-inappbrowser';
 import { TrainingOrchestrator } from '../core/orchestrator.js';
 import { CORPUS_MANIFEST } from '../data/corpusManifest.js';
-import { configureStockfish, StockfishWorkerClient } from '../engine/stockfishWorker.js';
+import { configureStockfish, StockfishWorkerClient, PERSONAS, resolvePersona } from '../engine/stockfishWorker.js';
+import { ChessClock, STANDARD_TIME_CONTROLS, formatClockTime } from '../engine/clock.js';
+import { PracticeSession } from '../engine/practiceSession.js';
+import { computeEvalBarState } from '../engine/evalBar.js';
+import { checkBlunderCandidate, generateHint } from '../engine/hints.js';
+import { calculateSeedScore } from '../core/scoring.js';
+import { calculateDailyProgress, processDailyStreakUpdate, advanceCategoryMastery } from '../core/streaks.js';
 import * as mobileStorage from '../storage/mobileDb.js';
 import { MobileSqlitePuzzleLibrary } from '../storage/mobilePuzzleDb.js';
 import { downloadAndImportCorpus, getCorpusStatus } from '../storage/corpusBootstrap.js';
@@ -29,13 +23,13 @@ import chessComThemeCss from './chesscom-theme.css';
 import { createChessComView } from './chesscomView.js';
 import { applyAppTheme, chessComCssForTheme, getTheme } from './themes.js';
 
+
 const PIECES = {
   p: '♟', r: '♜', n: '♞', b: '♝', q: '♛', k: '♚',
   P: '♙', R: '♖', N: '♘', B: '♗', Q: '♕', K: '♔',
 };
 
 const ENGINE_TIMEOUT_MS = 15000;
-const ENGINE_DEPTH = 12;
 const DB_NAME = 'chess_analyst';
 
 /* ---------------------------------------------------------------- *
@@ -53,6 +47,11 @@ const targetNameEl = el('target-name');
 const targetDescEl = el('target-desc');
 const queueIndicatorEl = el('target-queue-indicator');
 const sessionBadgeEl = el('session-badge');
+const opponentAvatarEl = el('opponent-avatar');
+const opponentNameEl = el('opponent-name');
+const opponentClockEl = el('opponent-clock');
+const userClockEl = el('user-clock');
+const evalBarFillEl = el('eval-bar-fill');
 
 /* ---------------------------------------------------------------- *
  * App state
@@ -62,12 +61,16 @@ let orchestrator = null;
 let engineClient = null;
 let chess = new Chess();
 let activeSession = null;
+let sessionClock = null;
+let clockIntervalHandle = null;
 let selectedSquare = null;
-let boardFlipped = true;
+let boardFlipped = false;
 let isEngineThinking = false;
-let engineTimeoutHandle = null;
 let settings = null;
 let corpusStatus = { populated: false, puzzleCount: 0, version: null };
+let currentHintTier = 0;
+let pendingBlunderMove = null;
+
 const chessComView = createChessComView({
   inAppBrowser: InAppBrowser,
   themeCss: chessComThemeCss,
@@ -83,7 +86,7 @@ const chessComView = createChessComView({
 });
 
 /* ---------------------------------------------------------------- *
- * Status helpers
+ * Status & theme helpers
  * ---------------------------------------------------------------- */
 function setStatus(text) {
   if (systemStatusEl) systemStatusEl.textContent = `${text} • ${getTheme(settings?.theme).label} Theme`;
@@ -94,9 +97,11 @@ async function activateTheme(themeId) {
   await chessComView.setThemeCss(chessComCssForTheme(chessComThemeCss, themeId));
   return theme;
 }
+
 function setMoveStatus(text) {
   if (moveStatusEl) moveStatusEl.textContent = text;
 }
+
 function setFatal(message, err) {
   console.error(message, err);
   setStatus('Startup problem');
@@ -105,10 +110,6 @@ function setFatal(message, err) {
 
 /* ---------------------------------------------------------------- *
  * Engine
- *
- * The vendored loader resolves its .wasm relative to self.location, which
- * breaks under the capacitor:// scheme. Passing an explicit absolute URL
- * makes the worker find stockfish.wasm regardless of scheme.
  * ---------------------------------------------------------------- */
 function stockfishWorkerUrl() {
   return new URL('./vendor/stockfish/stockfish.js', document.baseURI).href;
@@ -132,19 +133,31 @@ async function initEngine() {
 
 function handleInfoLine(line) {
   if (typeof line !== 'string' || !line.startsWith('info ')) return;
-  const cp = line.match(/\bscore\s+cp\s+(-?\d+)/);
-  const mate = line.match(/\bscore\s+mate\s+(-?\d+)/);
-  const pv = line.match(/\bpv\s+(.+)$/);
-  if (mate && engineEvalEl) {
-    engineEvalEl.textContent = `Eval: M${mate[1]}`;
-  } else if (cp && engineEvalEl) {
-    const score = (parseInt(cp[1], 10) / 100).toFixed(2);
-    engineEvalEl.textContent = `Eval: ${Number(score) > 0 ? '+' : ''}${score}`;
+  const cpMatch = line.match(/\bscore\s+cp\s+(-?\d+)/);
+  const mateMatch = line.match(/\bscore\s+mate\s+(-?\d+)/);
+  const pvMatch = line.match(/\bpv\s+(.+)$/);
+
+  let evalCp = 0;
+  let isMate = false;
+  if (mateMatch) {
+    isMate = true;
+    evalCp = parseInt(mateMatch[1], 10) > 0 ? 100000 : -100000;
+  } else if (cpMatch) {
+    evalCp = parseInt(cpMatch[1], 10);
   }
-  if (pv && pvMovesEl) pvMovesEl.textContent = pv[1];
+
+  const evalState = computeEvalBarState({ evalCp, isMateScore: isMate });
+  if (engineEvalEl) {
+    engineEvalEl.textContent = `Eval: ${evalState.label}`;
+  }
+  if (evalBarFillEl) {
+    evalBarFillEl.style.height = `${evalState.whiteHeightPercent}%`;
+  }
+  if (pvMatch && pvMovesEl) {
+    pvMovesEl.textContent = pvMatch[1];
+  }
 }
 
-/** Resolves to null on timeout instead of hanging forever. */
 function withTimeout(promise, ms) {
   let handle;
   const timeout = new Promise((resolve) => {
@@ -154,7 +167,54 @@ function withTimeout(promise, ms) {
 }
 
 /* ---------------------------------------------------------------- *
- * Board rendering — legality always from chess.js, never hand-rolled
+ * Clock display management
+ * ---------------------------------------------------------------- */
+function startClockTimer() {
+  stopClockTimer();
+  if (!sessionClock) return;
+
+  opponentClockEl?.classList.remove('hidden');
+  userClockEl?.classList.remove('hidden');
+
+  clockIntervalHandle = setInterval(() => {
+    if (!sessionClock) return;
+    const time = sessionClock.getTimeRemaining();
+    const isPlayerWhite = (activeSession?.playerColor ?? 'white') === 'white';
+
+    const playerTime = isPlayerWhite ? time.whiteMs : time.blackMs;
+    const oppTime = isPlayerWhite ? time.blackMs : time.whiteMs;
+
+    if (userClockEl) {
+      userClockEl.textContent = formatClockTime(playerTime);
+      userClockEl.classList.toggle('low-time', playerTime <= 30000 && playerTime > 0);
+    }
+    if (opponentClockEl) {
+      opponentClockEl.textContent = formatClockTime(oppTime);
+      opponentClockEl.classList.toggle('low-time', oppTime <= 30000 && oppTime > 0);
+    }
+
+    if (sessionClock.isFlagFallen()) {
+      stopClockTimer();
+      const flag = sessionClock.isFlagFallen();
+      const playerWon = (isPlayerWhite && flag === 'black') || (!isPlayerWhite && flag === 'white');
+      setMoveStatus(playerWon ? 'Opponent ran out of time! You win! 🏆' : 'Time ran out! Game over. ⏱️');
+      if (activeSession) {
+        activeSession.result = playerWon ? (isPlayerWhite ? '1-0' : '0-1') : (isPlayerWhite ? '0-1' : '1-0');
+        void showScoreSummary(activeSession);
+      }
+    }
+  }, 100);
+}
+
+function stopClockTimer() {
+  if (clockIntervalHandle) {
+    clearInterval(clockIntervalHandle);
+    clockIntervalHandle = null;
+  }
+}
+
+/* ---------------------------------------------------------------- *
+ * Board rendering
  * ---------------------------------------------------------------- */
 function squareName(fileIdx, rankIdx) {
   return `${String.fromCharCode(97 + fileIdx)}${8 - rankIdx}`;
@@ -175,7 +235,7 @@ function renderBoard() {
   const targets = selectedSquare ? legalTargetsFrom(selectedSquare) : [];
   const inCheck = typeof chess.inCheck === 'function' ? chess.inCheck() : false;
 
-  const rankOrder = boardFlipped ? [...Array(8).keys()].reverse() : [...Array(8).keys()];
+  const rankOrder = boardFlipped ? [...Array(8).keys()] : [...Array(8).keys()].reverse();
   const fileOrder = boardFlipped ? [...Array(8).keys()].reverse() : [...Array(8).keys()];
 
   for (const r of rankOrder) {
@@ -231,8 +291,8 @@ function updateTurnUI() {
     turnIndicatorEl.textContent = reason;
     return;
   }
-  const mine = chess.turn() === (boardFlipped ? 'b' : 'w');
-  turnIndicatorEl.textContent = mine ? 'Your turn to pounce!' : 'Stockfish is thinking…';
+  const isPlayerTurn = chess.turn() === (activeSession?.playerColor === 'black' ? 'b' : 'w');
+  turnIndicatorEl.textContent = isPlayerTurn ? 'Your turn to pounce!' : 'Stockfish is thinking…';
 }
 
 function appendLog(ply, san) {
@@ -247,21 +307,24 @@ function appendLog(ply, san) {
 }
 
 /* ---------------------------------------------------------------- *
- * Move handling
+ * Move Handling & Blunder Confirmation Gate
  * ---------------------------------------------------------------- */
 async function handleSquareClick(square) {
   if (!activeSession) {
-    setMoveStatus('Start a session first — tap "Pounce on Weakness".');
+    setMoveStatus('Start a session first — tap "Pounce on Weakness" or "Free Play".');
     return;
   }
   if (isEngineThinking) return;
   if (chess.isGameOver?.()) return;
 
+  const isPlayerTurn = chess.turn() === (activeSession.playerColor === 'black' ? 'b' : 'w');
+  if (!isPlayerTurn) return;
+
   const piece = chess.get(square);
 
   if (selectedSquare) {
     if (legalTargetsFrom(selectedSquare).includes(square)) {
-      await playPlayerMove(selectedSquare, square);
+      await initiatePlayerMove(selectedSquare, square);
       return;
     }
     selectedSquare = piece && piece.color === chess.turn() ? square : null;
@@ -276,12 +339,38 @@ async function handleSquareClick(square) {
   }
 }
 
-async function playPlayerMove(from, to) {
-  // chess.js is the sole authority on legality.
+async function initiatePlayerMove(from, to) {
+  const uci = from + to;
+  const fenBefore = chess.fen();
+
+  // Check blunder candidate before committing
+  if (engineClient) {
+    try {
+      const blunderCheck = await checkBlunderCandidate(fenBefore, uci, engineClient);
+      if (blunderCheck?.isBlunder) {
+        pendingBlunderMove = { from, to, uci };
+        const warningEl = el('blunder-warning-text');
+        if (warningEl && blunderCheck.message) {
+          warningEl.textContent = blunderCheck.message;
+        }
+        el('blunder-modal')?.classList.remove('hidden');
+        selectedSquare = null;
+        renderBoard();
+        return;
+      }
+    } catch (err) {
+      console.warn('Blunder check non-fatal error:', err);
+    }
+  }
+
+  await executePlayerMove(from, to);
+}
+
+async function executePlayerMove(from, to) {
   let move = null;
   try {
     move = chess.move({ from, to, promotion: 'q' });
-  } catch (err) {
+  } catch {
     move = null;
   }
   if (!move) {
@@ -295,13 +384,15 @@ async function playPlayerMove(from, to) {
   appendLog(Math.ceil(chess.history().length / 2), move.san);
   renderBoard();
 
+  if (sessionClock) {
+    if (!sessionClock.isRunning) sessionClock.start(chess.turn() === 'b' ? 'black' : 'white');
+    else sessionClock.switchTurn();
+  }
+
   const uci = move.from + move.to + (move.promotion ?? '');
 
-  // PracticeSession.playTurn() logs the player move AND plays the engine's
-  // reply itself. We must NOT run a second search here — doing so would move
-  // twice and desync the board from session.currentFen.
   isEngineThinking = true;
-  setMoveStatus('Orange Cat Stockfish is calculating…');
+  setMoveStatus(`${activeSession.persona ? resolvePersona(activeSession.persona).name : 'Stockfish'} is calculating…`);
   updateTurnUI();
 
   let result = null;
@@ -334,26 +425,224 @@ async function playPlayerMove(from, to) {
     }
   }
 
-  // Session state is authoritative; resync if we drifted for any reason.
+  if (sessionClock && sessionClock.isRunning) {
+    sessionClock.switchTurn();
+  }
+
   if (result.currentFen && chess.fen() !== result.currentFen) {
     chess = new Chess(result.currentFen);
   }
 
-  setMoveStatus(chess.isGameOver?.() ? 'Game over — tap "End Session" to save.' : 'Your move.');
+  if (chess.isGameOver?.()) {
+    stopClockTimer();
+    let res = '1/2-1/2';
+    if (chess.isCheckmate?.()) {
+      res = chess.turn() === 'w' ? '0-1' : '1-0';
+    }
+    activeSession.result = res;
+    setMoveStatus('Game over! Complete session to view your score.');
+    void showScoreSummary(activeSession);
+  } else {
+    setMoveStatus('Your move.');
+  }
   renderBoard();
 }
 
 /* ---------------------------------------------------------------- *
- * Session lifecycle — driven by the real orchestrator
+ * In-game actions: Hints, Takeback, Draw, Resign
+ * ---------------------------------------------------------------- */
+async function openHintModal() {
+  if (!activeSession) {
+    setMoveStatus('Start a session first to request hints.');
+    return;
+  }
+  currentHintTier = 1;
+  el('hint-tier-2')?.classList.add('hidden');
+  el('hint-tier-3')?.classList.add('hidden');
+  const moreBtn = el('btn-hint-more');
+  if (moreBtn) {
+    moreBtn.disabled = false;
+    moreBtn.textContent = '🐾 Need More Help?';
+  }
+
+  const t1El = el('hint-text-1');
+  if (t1El) t1El.textContent = 'Calculating board awareness…';
+  el('hint-modal')?.classList.remove('hidden');
+
+  try {
+    const hint1 = await generateHint(chess.fen(), 'warm', engineClient);
+    if (t1El) t1El.textContent = hint1.message;
+    activeSession.recordHint('warm', hint1.type);
+  } catch (err) {
+    if (t1El) t1El.textContent = 'Look for undefended pieces and active squares.';
+  }
+}
+
+async function requestNextHintTier() {
+  if (!activeSession) return;
+  if (currentHintTier === 1) {
+    currentHintTier = 2;
+    el('hint-tier-2')?.classList.remove('hidden');
+    const t2El = el('hint-text-2');
+    if (t2El) t2El.textContent = 'Searching opponent threats…';
+
+    try {
+      const hint2 = await generateHint(chess.fen(), 'warmer', engineClient);
+      if (t2El) t2El.textContent = hint2.message;
+      activeSession.recordHint('warmer', hint2.type);
+    } catch {
+      if (t2El) t2El.textContent = 'Watch out for opponent tactical counters.';
+    }
+  } else if (currentHintTier === 2) {
+    currentHintTier = 3;
+    el('hint-tier-3')?.classList.remove('hidden');
+    const t3El = el('hint-text-3');
+    if (t3El) t3El.textContent = 'Finding best piece to move…';
+    const moreBtn = el('btn-hint-more');
+    if (moreBtn) {
+      moreBtn.disabled = true;
+      moreBtn.textContent = 'Max Hint Reached';
+    }
+
+    try {
+      const hint3 = await generateHint(chess.fen(), 'hot', engineClient);
+      if (t3El) t3El.textContent = hint3.message;
+      activeSession.recordHint('hot', hint3.type);
+    } catch {
+      if (t3El) t3El.textContent = 'Look for the most forcing move.';
+    }
+  }
+}
+
+function handleTakeback() {
+  if (!activeSession || activeSession.logs.length === 0) {
+    setMoveStatus('No moves to take back.');
+    return;
+  }
+  const tb = activeSession.takeback();
+  chess = new Chess(tb.revertedFen);
+  selectedSquare = null;
+  renderBoard();
+  if (moveLogEl) {
+    moveLogEl.innerHTML = '<div class="empty-log-message">Move taken back. Try another line! 🐾</div>';
+    for (const log of activeSession.logs) {
+      appendLog(log.ply_number, log.move_played);
+    }
+  }
+  setMoveStatus(`Takeback applied (${tb.takebackCount} total). Assistance level: ${activeSession.computeAssistanceLevel()}.`);
+}
+
+async function handleOfferDraw() {
+  if (!activeSession) return;
+  setMoveStatus('Offering draw to Stockfish…');
+  const offer = await activeSession.offerDraw();
+  if (offer.accepted) {
+    stopClockTimer();
+    setMoveStatus('Draw agreed! (Evaluation is within +/- 0.75 pawns). 🤝');
+    void showScoreSummary(activeSession);
+  } else {
+    setMoveStatus('Draw declined. Stockfish wants to play on! ⚔️');
+  }
+}
+
+function handleResign() {
+  if (!activeSession) return;
+  if (!window.confirm('Resign the game?')) return;
+  stopClockTimer();
+  activeSession.resign();
+  setMoveStatus('You resigned. Game over.');
+  void showScoreSummary(activeSession);
+}
+
+/* ---------------------------------------------------------------- *
+ * Score & completion modal
+ * ---------------------------------------------------------------- */
+async function showScoreSummary(session) {
+  const summary = session.summary();
+  const score = calculateSeedScore(summary);
+
+  const gradeEl = el('score-grade');
+  const totalEl = el('score-total');
+  const accEl = el('score-accuracy');
+  const motifEl = el('score-motif');
+  const hintsEl = el('score-hints');
+  const assistEl = el('score-assistance');
+
+  if (gradeEl) gradeEl.textContent = score.grade;
+  if (totalEl) totalEl.textContent = score.totalScore;
+  if (accEl) accEl.textContent = score.accuracyComponent.toFixed(1);
+  if (motifEl) motifEl.textContent = score.motifComponent.toFixed(1);
+  if (hintsEl) hintsEl.textContent = `-${score.hintPenalty.toFixed(1)}`;
+  if (assistEl) assistEl.textContent = summary.assistance_level.toUpperCase();
+
+  el('score-modal')?.classList.remove('hidden');
+
+  // Save score and update streaks in SQLite
+  try {
+    await mobileStorage.saveSeedScore(db, {
+      gameId: session.gameId,
+      accuracyComponent: score.accuracyComponent,
+      motifComponent: score.motifComponent,
+      hintPenalty: score.hintPenalty,
+      totalScore: score.totalScore,
+      letterGrade: score.grade,
+      assistanceLevel: summary.assistance_level,
+    });
+
+    await mobileStorage.recordDailySession(db, session.gameId);
+    const today = new Date().toISOString().slice(0, 10);
+    const todayStats = await mobileStorage.getDailyStats(db, today);
+    const streakState = await mobileStorage.getStreakState(db);
+
+    const updatedStreak = processDailyStreakUpdate({
+      streakState,
+      currentDate: today,
+      sessionsCompletedToday: todayStats?.sessionsCompleted ?? 1,
+      goalTarget: Number(settings?.daily_goal) || 3,
+    });
+    await mobileStorage.updateStreakState(db, updatedStreak);
+
+    if (session.seededWeakness) {
+      const currentMastery = await mobileStorage.getCategoryMastery(db);
+      const curLvl = currentMastery[session.seededWeakness]?.masteryLevel ?? 0;
+      const nextLvl = advanceCategoryMastery(curLvl, score.totalScore);
+      await mobileStorage.updateCategoryMastery(db, {
+        category: session.seededWeakness,
+        masteryLevel: nextLvl,
+        lastPracticedAt: new Date().toISOString(),
+      });
+    }
+  } catch (err) {
+    console.warn('Could not record score/streak in SQLite:', err);
+  }
+}
+
+/* ---------------------------------------------------------------- *
+ * Session lifecycle
  * ---------------------------------------------------------------- */
 function syncSessionToBoard(session) {
   activeSession = session;
   const fen = session?.currentFen ?? session?.startFen;
   chess = fen ? new Chess(fen) : new Chess();
-  boardFlipped = chess.turn() === 'b';
+  boardFlipped = (session?.playerColor ?? 'white') === 'black';
   selectedSquare = null;
+
+  if (session?.timeControl && session.timeControl !== 'none') {
+    sessionClock = new ChessClock(session.timeControl);
+    startClockTimer();
+  } else {
+    sessionClock = null;
+    stopClockTimer();
+    opponentClockEl?.classList.add('hidden');
+    userClockEl?.classList.add('hidden');
+  }
+
+  const personaObj = resolvePersona(session?.persona);
+  if (opponentAvatarEl) opponentAvatarEl.textContent = personaObj.avatar;
+  if (opponentNameEl) opponentNameEl.textContent = `${personaObj.name} (~${personaObj.targetElo} Elo)`;
+
   if (moveLogEl) {
-    moveLogEl.innerHTML = '<div class="empty-log-message">Motif-ready position loaded. Your move!</div>';
+    moveLogEl.innerHTML = '<div class="empty-log-message">Position loaded. Your move! 🐾</div>';
   }
   renderBoard();
 }
@@ -373,9 +662,36 @@ async function startTargetedSession() {
     if (sessionBadgeEl) sessionBadgeEl.textContent = 'Practice Mode';
 
     syncSessionToBoard(focus.activeSession);
-    setMoveStatus('Session started. Pounce!');
+    setMoveStatus('Targeted hunt started. Pounce!');
   } catch (err) {
     setFatal('Could not start a session.', err);
+  }
+}
+
+async function startFreeplaySession() {
+  try {
+    const persona = settings?.freeplay_persona || 'tabby';
+    const timeControl = settings?.freeplay_time_control || '3|2';
+    const playerColor = 'white';
+
+    const session = new PracticeSession({
+      mode: 'freeplay',
+      persona,
+      timeControl,
+      playerColor,
+      engine: engineClient,
+      gameId: `freeplay-${Date.now()}`,
+    });
+
+    if (targetNameEl) targetNameEl.textContent = 'Free Play vs Stockfish';
+    if (targetDescEl) targetDescEl.textContent = `Persona: ${resolvePersona(persona).name} • Clock: ${timeControl}`;
+    if (queueIndicatorEl) queueIndicatorEl.textContent = 'Unseeded';
+    if (sessionBadgeEl) sessionBadgeEl.textContent = 'Free Play ⚔️';
+
+    syncSessionToBoard(session);
+    setMoveStatus('Free play game started! Make your move.');
+  } catch (err) {
+    setFatal('Could not start free play session.', err);
   }
 }
 
@@ -400,8 +716,10 @@ async function completeSession() {
     return;
   }
   if (!window.confirm('End this session and save it?')) return;
+  stopClockTimer();
   try {
     await orchestrator.completeSession(activeSession);
+    await showScoreSummary(activeSession);
     activeSession = null;
     setMoveStatus('Session saved to your history.');
     if (sessionBadgeEl) sessionBadgeEl.textContent = 'Saved';
@@ -417,7 +735,7 @@ async function completeSession() {
 }
 
 /* ---------------------------------------------------------------- *
- * M9 corpus bootstrap, profile, settings, and primary navigation
+ * Profile & settings
  * ---------------------------------------------------------------- */
 function showPage(page) {
   const profile = page === 'profile';
@@ -482,7 +800,13 @@ async function refreshProfile() {
   if (!db) return;
   settings = await mobileStorage.getSettings(db);
   await activateTheme(settings.theme);
+
   const stats = await mobileStorage.getProfileStats(db);
+  const today = new Date().toISOString().slice(0, 10);
+  stats.todayStats = await mobileStorage.getDailyStats(db, today);
+  stats.streakState = await mobileStorage.getStreakState(db);
+  stats.categoryMastery = await mobileStorage.getCategoryMastery(db);
+
   corpusStatus = await getCorpusStatus(db);
   let focus = null;
   if (orchestrator && corpusStatus.populated) {
@@ -498,10 +822,11 @@ async function refreshProfile() {
     if (output) output.textContent = range.value;
     if (label) label.textContent = engineDifficultyLabel(range.value);
   });
+
   el('settings-form')?.addEventListener('submit', async (event) => {
     event.preventDefault();
     const form = new FormData(event.currentTarget);
-    for (const key of ['display_name', 'cat_avatar', 'chesscom_username', 'engine_skill_level', 'theme']) {
+    for (const key of ['display_name', 'cat_avatar', 'chesscom_username', 'engine_skill_level', 'theme', 'daily_goal', 'freeplay_persona', 'freeplay_time_control']) {
       await mobileStorage.setSetting(db, key, form.get(key));
     }
     settings = await mobileStorage.getSettings(db);
@@ -512,6 +837,42 @@ async function refreshProfile() {
     setStatus('Settings saved');
     await refreshProfile();
   });
+
+  el('btn-db-export')?.addEventListener('click', async () => {
+    try {
+      const data = await mobileStorage.exportDatabaseJson(db);
+      const json = JSON.stringify(data, null, 2);
+      const blob = new Blob([json], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `cat_analyst_backup_${Date.now()}.json`;
+      a.click();
+      URL.revokeObjectURL(url);
+      setStatus('Database exported');
+    } catch (err) {
+      alert('Export failed: ' + err.message);
+    }
+  });
+
+  el('btn-db-import')?.addEventListener('click', () => {
+    el('db-import-file')?.click();
+  });
+
+  el('db-import-file')?.addEventListener('change', async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    try {
+      const text = await file.text();
+      const payload = JSON.parse(text);
+      await mobileStorage.importDatabaseJson(db, payload);
+      alert('Database restored successfully!');
+      await refreshProfile();
+    } catch (err) {
+      alert('Import failed: ' + err.message);
+    }
+  });
+
   el('btn-corpus-update')?.addEventListener('click', () => importCorpus({ force: true }).catch(() => {}));
   el('btn-reset-data')?.addEventListener('click', async () => {
     if (!window.confirm('Delete all sessions, move history, weakness data, and settings? This cannot be undone.')) return;
@@ -538,7 +899,7 @@ async function initializePractice() {
   chess = new Chess();
   renderBoard();
   setStatus('Ready');
-  setMoveStatus('Tap "Pounce on Weakness" to begin.');
+  setMoveStatus('Tap "Pounce on Weakness" or "Free Play" to begin.');
 }
 
 /* ---------------------------------------------------------------- *
@@ -577,16 +938,46 @@ async function boot() {
     setMoveStatus('Download the one-time puzzle pack to begin.');
   }
 
+  // Action listeners
   el('btn-start-target')?.addEventListener('click', startTargetedSession);
+  el('btn-freeplay')?.addEventListener('click', startFreeplaySession);
   el('btn-next-queued')?.addEventListener('click', startNextQueued);
   el('btn-complete')?.addEventListener('click', completeSession);
   el('btn-download-corpus')?.addEventListener('click', () => importCorpus().catch(() => {}));
   el('nav-practice')?.addEventListener('click', () => showPage('practice'));
   el('nav-profile')?.addEventListener('click', () => showPage('profile'));
   el('nav-chesscom')?.addEventListener('click', () => { void openChessCom(); });
+
   el('btn-flip')?.addEventListener('click', () => {
     boardFlipped = !boardFlipped;
     renderBoard();
+  });
+
+  el('btn-hint')?.addEventListener('click', openHintModal);
+  el('btn-hint-more')?.addEventListener('click', requestNextHintTier);
+  el('btn-hint-close')?.addEventListener('click', () => el('hint-modal')?.classList.add('hidden'));
+
+  el('btn-takeback')?.addEventListener('click', handleTakeback);
+  el('btn-draw')?.addEventListener('click', handleOfferDraw);
+  el('btn-resign')?.addEventListener('click', handleResign);
+
+  el('btn-blunder-cancel')?.addEventListener('click', () => {
+    pendingBlunderMove = null;
+    el('blunder-modal')?.classList.add('hidden');
+    setMoveStatus('Move cancelled. Choose a better line!');
+  });
+
+  el('btn-blunder-confirm')?.addEventListener('click', async () => {
+    el('blunder-modal')?.classList.add('hidden');
+    if (pendingBlunderMove) {
+      const { from, to } = pendingBlunderMove;
+      pendingBlunderMove = null;
+      await executePlayerMove(from, to);
+    }
+  });
+
+  el('btn-score-continue')?.addEventListener('click', () => {
+    el('score-modal')?.classList.add('hidden');
   });
 
   el('tab-moves')?.addEventListener('click', () => {
