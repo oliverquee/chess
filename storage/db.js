@@ -125,8 +125,11 @@ function ensureMoveAnalysisColumns(db) {
     ['eval_cp_before', 'INTEGER NULL'],
     ['eval_cp_after', 'INTEGER NULL'],
     ['best_move', 'TEXT NULL'],
+    ['best_move_depth8', 'TEXT NULL'],
     ['principal_variation', 'TEXT NULL'],
     ['is_mate_score', 'INTEGER NOT NULL DEFAULT 0 CHECK(is_mate_score IN (0,1))'],
+    ['time_to_move_ms', 'INTEGER NULL'],
+    ['clock_remaining_ms', 'INTEGER NULL'],
   ];
 
   for (const [name, sqlType] of additions) {
@@ -162,6 +165,7 @@ function ensureImportColumns(db) {
     ['black_player', 'TEXT NULL'],
     ['analysis_engine', 'TEXT NULL'],
     ['analysis_depth', 'INTEGER NULL'],
+    ['assistance_level', "TEXT NULL CHECK(assistance_level IN ('none','preview','hints','full'))"],
   ];
   for (const [name, type] of gameAdditions) {
     if (!gameColumns.has(name)) db.exec(`ALTER TABLE games ADD COLUMN ${name} ${type}`);
@@ -264,12 +268,15 @@ function prepareMoveInsert(db) {
       eval_cp_before,
       eval_cp_after,
       best_move,
+      best_move_depth8,
       principal_variation,
       is_mate_score,
       stockfish_response,
+      time_to_move_ms,
+      clock_remaining_ms,
       timestamp,
       timestamp_source
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `);
 }
 
@@ -287,9 +294,12 @@ function insertMoves(insertMove, summary) {
       normalizeNullableInteger(move.eval_cp_before, 'move.eval_cp_before'),
       normalizeNullableInteger(move.eval_cp_after, 'move.eval_cp_after'),
       normalizeNullableText(move.best_move, 'move.best_move'),
+      normalizeNullableText(move.best_move_depth8, 'move.best_move_depth8'),
       normalizeNullableText(move.principal_variation, 'move.principal_variation'),
       normalizeMateFlag(move.is_mate_score),
       move.stockfish_response ?? null,
+      normalizeNullableInteger(move.time_to_move_ms, 'move.time_to_move_ms'),
+      normalizeNullableInteger(move.clock_remaining_ms, 'move.clock_remaining_ms'),
       move.timestamp,
       timestampSourceFor(move, summary.mode),
     );
@@ -305,6 +315,10 @@ export function initDb(path) {
 
   const db = new DatabaseSync(path);
   db.exec('PRAGMA foreign_keys = ON;');
+  if (path !== ':memory:') {
+    db.exec('PRAGMA journal_mode = WAL;');
+    db.exec('PRAGMA busy_timeout = 10000;');
+  }
   db.exec(readFileSync(SCHEMA_PATH, 'utf8'));
   ensureGameStatusColumn(db);
   ensureMoveAnalysisColumns(db);
@@ -324,17 +338,20 @@ export function saveGameSession(db, summary) {
       import_source, external_game_id, player_color, white_player, black_player,
       analysis_engine, analysis_depth,
       assistance_level, hint_count, takeback_count, time_control, persona
-    ) VALUES (?, ?, ?, 'completed', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `);
   const insertMove = prepareMoveInsert(db);
 
   const date = summary.date ?? summary.moves[0]?.timestamp ?? new Date().toISOString();
+  const status = summary.status ?? 'completed';
+  const assistanceLevel = summary.assistance_level ?? (summary.mode === 'imported' ? 'none' : 'none');
 
   return withTransaction(db, () => {
     insertGame.run(
       summary.id,
       date,
       summary.mode,
+      status,
       summary.result ?? null,
       summary.seeded_weakness ?? null,
       summary.seed_puzzle_id ?? null,
@@ -347,7 +364,7 @@ export function saveGameSession(db, summary) {
       summary.black_player ?? null,
       summary.analysis_engine ?? null,
       summary.analysis_depth ?? null,
-      summary.assistance_level ?? 'none',
+      summary.assistance_level ?? assistanceLevel,
       summary.hint_count ?? 0,
       summary.takeback_count ?? 0,
       summary.time_control ?? null,
@@ -358,6 +375,46 @@ export function saveGameSession(db, summary) {
 
     return summary.id;
   });
+}
+
+export function updateMoveAnalysis(db, moveId, {
+  eval_cp_before,
+  eval_cp_after,
+  best_move,
+  best_move_depth8,
+  principal_variation,
+  is_mate_score,
+}) {
+  assertDb(db);
+  const stmt = db.prepare(`
+    UPDATE moves
+    SET eval_cp_before = ?,
+        eval_cp_after = ?,
+        best_move = ?,
+        best_move_depth8 = ?,
+        principal_variation = ?,
+        is_mate_score = ?
+    WHERE id = ?
+  `);
+  stmt.run(
+    normalizeNullableInteger(eval_cp_before, 'eval_cp_before'),
+    normalizeNullableInteger(eval_cp_after, 'eval_cp_after'),
+    normalizeNullableText(best_move, 'best_move'),
+    normalizeNullableText(best_move_depth8, 'best_move_depth8'),
+    normalizeNullableText(principal_variation, 'principal_variation'),
+    normalizeMateFlag(is_mate_score),
+    moveId,
+  );
+}
+
+export function updateGameAnalysisStatus(db, gameId, { status = 'analyzed', analysis_engine = 'Stockfish', analysis_depth = 16 } = {}) {
+  assertDb(db);
+  const stmt = db.prepare(`
+    UPDATE games
+    SET status = ?, analysis_engine = ?, analysis_depth = ?
+    WHERE id = ?
+  `);
+  stmt.run(status, analysis_engine, analysis_depth, gameId);
 }
 
 function validateQueuedGame(game) {

@@ -61,12 +61,40 @@ function pgnDate(headers) {
   return Number.isNaN(Date.parse(iso)) ? null : iso;
 }
 
+export function parseClockStringMs(clkStr) {
+  if (!clkStr) return null;
+  const parts = clkStr.trim().split(':');
+  if (parts.length === 3) {
+    const hours = parseInt(parts[0], 10);
+    const minutes = parseInt(parts[1], 10);
+    const seconds = parseFloat(parts[2]);
+    return Math.round((hours * 3600 + minutes * 60 + seconds) * 1000);
+  } else if (parts.length === 2) {
+    const minutes = parseInt(parts[0], 10);
+    const seconds = parseFloat(parts[1]);
+    return Math.round((minutes * 60 + seconds) * 1000);
+  }
+  return null;
+}
+
+export function parseStartingTimeMs(timeControlHeader) {
+  if (!timeControlHeader || timeControlHeader === '-' || timeControlHeader === '?') return { baseMs: null, incMs: 0 };
+  const parts = String(timeControlHeader).split('+');
+  const baseSec = parseInt(parts[0], 10);
+  const incSec = parts.length > 1 ? parseInt(parts[1], 10) : 0;
+  return {
+    baseMs: Number.isFinite(baseSec) ? baseSec * 1000 : null,
+    incMs: Number.isFinite(incSec) ? incSec * 1000 : 0,
+  };
+}
+
 function normalizeAnalysis(result) {
-  if (!result || typeof result !== 'object') throw new Error('Stockfish returned no analysis result.');
+  if (!result || typeof result !== 'object') return { evalCp: null, bestMove: null, bestMoveDepth8: null, principalVariation: null, isMateScore: false };
   return {
     evalCp: result.evalCp ?? null,
     bestMove: result.bestMove ?? null,
-    principalVariation: Array.isArray(result.principalVariation) ? result.principalVariation.join(' ') : null,
+    bestMoveDepth8: result.bestMoveDepth8 ?? null,
+    principalVariation: Array.isArray(result.principalVariation) ? result.principalVariation.join(' ') : (typeof result.principalVariation === 'string' ? result.principalVariation : null),
     isMateScore: Boolean(result.isMateScore),
   };
 }
@@ -74,16 +102,13 @@ function normalizeAnalysis(result) {
 export async function buildImportedGameSummary({
   pgn,
   username,
-  engine,
+  engine = null,
   importSource = 'chesscom_manual',
   externalGameId,
   completedAt,
   now = () => new Date().toISOString(),
   gameId,
 }) {
-  if (!engine || typeof engine.analyzePosition !== 'function') {
-    throw new TypeError('engine must provide analyzePosition(fen).');
-  }
   const { chess, headers, moves, player } = validatePgnForUser(pgn, username);
   const { playerColor, white, black } = player;
   const analysisTimestamp = now();
@@ -92,14 +117,41 @@ export async function buildImportedGameSummary({
   const id = gameId ?? `import-${stableHash(`${importSource}:${externalId}`).slice(0, 24)}`;
   const cache = new Map();
   const analyze = async (fen) => {
+    if (!engine || typeof engine.analyzePosition !== 'function') {
+      return { evalCp: null, bestMove: null, bestMoveDepth8: null, principalVariation: null, isMateScore: false };
+    }
     if (!cache.has(fen)) cache.set(fen, Promise.resolve(engine.analyzePosition(fen)).then(normalizeAnalysis));
     return cache.get(fen);
   };
+
+  const commentMap = new Map();
+  for (const c of chess.getComments()) {
+    commentMap.set(c.fen, c.comment);
+  }
+
+  const { baseMs, incMs } = parseStartingTimeMs(headers.TimeControl);
+  let whitePrevClock = baseMs;
+  let blackPrevClock = baseMs;
 
   const records = [];
   for (const [index, move] of moves.entries()) {
     const before = await analyze(move.before);
     const after = await analyze(move.after);
+
+    const comment = commentMap.get(move.after);
+    const clkMatch = comment?.match(/\[%clk\s+([\d:.]+)/);
+    const clockRemainingMs = clkMatch ? parseClockStringMs(clkMatch[1]) : null;
+    let timeToMoveMs = null;
+    const isWhite = (index % 2 === 0);
+    if (clockRemainingMs !== null) {
+      const prev = isWhite ? whitePrevClock : blackPrevClock;
+      if (prev !== null) {
+        timeToMoveMs = Math.max(0, prev - clockRemainingMs);
+      }
+      if (isWhite) whitePrevClock = clockRemainingMs + incMs;
+      else blackPrevClock = clockRemainingMs + incMs;
+    }
+
     records.push({
       game_id: id,
       ply_number: index + 1,
@@ -108,9 +160,12 @@ export async function buildImportedGameSummary({
       eval_cp_before: before.evalCp,
       eval_cp_after: after.evalCp,
       best_move: before.bestMove,
+      best_move_depth8: before.bestMoveDepth8 ?? null,
       principal_variation: before.principalVariation,
       is_mate_score: before.isMateScore || after.isMateScore ? 1 : 0,
       stockfish_response: null,
+      time_to_move_ms: timeToMoveMs,
+      clock_remaining_ms: clockRemainingMs,
       timestamp: analysisTimestamp,
       timestamp_source: 'posthoc_analysis',
     });
@@ -120,6 +175,7 @@ export async function buildImportedGameSummary({
     id,
     date: completedAt ?? pgnDate(headers) ?? analysisTimestamp,
     mode: 'imported',
+    status: 'completed',
     result: headers.Result,
     start_fen: moves[0].before,
     current_fen: chess.fen(),
@@ -129,8 +185,9 @@ export async function buildImportedGameSummary({
     player_color: playerColor,
     white_player: white,
     black_player: black,
-    analysis_engine: engine.engineName ?? 'Stockfish',
-    analysis_depth: Number.isInteger(engine.analysisDepth) ? engine.analysisDepth : null,
+    analysis_engine: engine?.engineName ?? null,
+    analysis_depth: Number.isInteger(engine?.analysisDepth) ? engine.analysisDepth : null,
+    assistance_level: 'none',
   };
 }
 
@@ -151,11 +208,10 @@ export async function importChessComMonthlyArchive({
   username,
   year,
   month,
-  engineFactory,
+  engineFactory = null,
   fetchImpl = fetch,
   now,
 }) {
-  if (typeof engineFactory !== 'function') throw new TypeError('engineFactory must be a function.');
   const games = await fetchChessComMonthlyArchive({ username, year, month, fetchImpl });
   const imported = [];
   const skipped = [];
@@ -183,7 +239,7 @@ export async function importChessComMonthlyArchive({
       skipped.push({ reason: 'duplicate', id: externalGameId });
       continue;
     }
-    const engine = engineFactory(game);
+    const engine = typeof engineFactory === 'function' ? engineFactory(game) : null;
     try {
       const summary = await importCompletedPgn({
         db,
@@ -200,7 +256,7 @@ export async function importChessComMonthlyArchive({
       if (!(error instanceof ImportValidationError)) throw error;
       skipped.push({ reason: error.message, id: game?.uuid ?? game?.url ?? null });
     } finally {
-      engine.dispose?.();
+      engine?.dispose?.();
     }
   }
   return { imported, skipped };

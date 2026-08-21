@@ -33,9 +33,12 @@ CREATE TABLE IF NOT EXISTS moves (
   eval_cp_before INTEGER NULL,
   eval_cp_after INTEGER NULL,
   best_move TEXT NULL,
+  best_move_depth8 TEXT NULL,
   principal_variation TEXT NULL,
   is_mate_score INTEGER NOT NULL DEFAULT 0 CHECK(is_mate_score IN (0,1)),
   stockfish_response TEXT NULL,
+  time_to_move_ms INTEGER NULL,
+  clock_remaining_ms INTEGER NULL,
   timestamp TEXT,
   timestamp_source TEXT NOT NULL DEFAULT 'live_recorded'
     CHECK(timestamp_source IN ('live_recorded','posthoc_analysis'))
